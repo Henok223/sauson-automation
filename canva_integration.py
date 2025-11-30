@@ -159,17 +159,101 @@ class CanvaIntegration:
         Returns:
             PDF bytes of generated slide
         """
-        # This would use PIL/Pillow or similar to composite images
-        # For now, return placeholder
-        # In production, you'd:
-        # 1. Load template
-        # 2. Place headshot at correct position
-        # 3. Place logo at correct position
-        # 4. Add text elements
-        # 5. Export as PDF
-        
         from PIL import Image, ImageDraw, ImageFont
+        import io
         
-        # Placeholder implementation
-        return b"ALTERNATIVE_SLIDE_PDF"
+        # Create a slide-sized image (1920x1080 for standard presentation)
+        slide_width = 1920
+        slide_height = 1080
+        slide = Image.new('RGB', (slide_width, slide_height), color='white')
+        draw = ImageDraw.Draw(slide)
+        
+        # Try to load fonts (fallback to default if not available)
+        try:
+            title_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 72)
+            subtitle_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 48)
+            text_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 36)
+        except:
+            try:
+                title_font = ImageFont.truetype("arial.ttf", 72)
+                subtitle_font = ImageFont.truetype("arial.ttf", 48)
+                text_font = ImageFont.truetype("arial.ttf", 36)
+            except:
+                title_font = ImageFont.load_default()
+                subtitle_font = ImageFont.load_default()
+                text_font = ImageFont.load_default()
+        
+        # Load and resize headshot (circular)
+        try:
+            headshot = Image.open(headshot_path).convert('RGB')
+            # Resize to 400x400
+            headshot = headshot.resize((400, 400), Image.Resampling.LANCZOS)
+            # Create circular mask
+            mask = Image.new('L', (400, 400), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.ellipse([(0, 0), (400, 400)], fill=255)
+            # Apply mask
+            headshot.putalpha(mask)
+            # Paste headshot at position (100, 200)
+            slide.paste(headshot, (100, 200), headshot.split()[3] if headshot.mode == 'RGBA' else None)
+        except Exception as e:
+            print(f"Warning: Could not load headshot: {e}")
+        
+        # Load and resize logo (top right)
+        try:
+            logo = Image.open(logo_path).convert('RGB')
+            logo = logo.resize((200, 200), Image.Resampling.LANCZOS)
+            # Paste logo at top right (1620, 50)
+            slide.paste(logo, (1620, 50))
+        except Exception as e:
+            print(f"Warning: Could not load logo: {e}")
+        
+        # Add company name (title)
+        company_name = company_data.get('name', 'Company Name')
+        draw.text((600, 250), company_name, fill='black', font=title_font)
+        
+        # Add description
+        description = company_data.get('description', '')
+        if description:
+            # Wrap text if too long
+            words = description.split()
+            lines = []
+            current_line = []
+            for word in words:
+                test_line = ' '.join(current_line + [word])
+                bbox = draw.textbbox((0, 0), test_line, font=text_font)
+                if bbox[2] - bbox[0] < 1000:  # Max width
+                    current_line.append(word)
+                else:
+                    if current_line:
+                        lines.append(' '.join(current_line))
+                    current_line = [word]
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            y_offset = 400
+            for line in lines[:4]:  # Max 4 lines
+                draw.text((600, y_offset), line, fill='gray', font=text_font)
+                y_offset += 50
+        
+        # Add location/address
+        address = company_data.get('address', '')
+        if address:
+            draw.text((600, 650), f"📍 {address}", fill='darkgray', font=text_font)
+        
+        # Add investment date
+        investment_date = company_data.get('investment_date', '')
+        if investment_date:
+            draw.text((600, 720), f"Invested: {investment_date}", fill='darkgray', font=text_font)
+        
+        # Add co-investors
+        co_investors = company_data.get('co_investors', '')
+        if co_investors:
+            draw.text((600, 790), f"Co-investors: {co_investors}", fill='darkgray', font=text_font)
+        
+        # Convert to PDF bytes
+        pdf_bytes = io.BytesIO()
+        slide.save(pdf_bytes, format='PDF', resolution=100.0)
+        pdf_bytes.seek(0)
+        return pdf_bytes.read()
 

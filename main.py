@@ -115,11 +115,18 @@ class PortfolioOnboardingAutomation:
                             logo_path
                         )
                     
+                    # Save PDF bytes to file and store in results
+                    if isinstance(slide_pdf, bytes):
+                        with open(slide_pdf_path, 'wb') as f:
+                            f.write(slide_pdf)
+                        results["canva_slide_pdf_bytes"] = slide_pdf
+                    else:
+                        # If it's already saved to path, read it
+                        if os.path.exists(slide_pdf_path):
+                            with open(slide_pdf_path, 'rb') as f:
+                                results["canva_slide_pdf_bytes"] = f.read()
+                    
                     results["canva_slide_path"] = slide_pdf_path
-                    # Read PDF bytes before temp directory is cleaned up
-                    if os.path.exists(slide_pdf_path):
-                        with open(slide_pdf_path, 'rb') as f:
-                            results["canva_slide_pdf_bytes"] = f.read()
                 except Exception as e:
                     print(f"Warning: Canva slide generation failed: {e}")
                     results["errors"].append(f"Canva: {str(e)}")
