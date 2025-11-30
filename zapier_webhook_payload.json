@@ -1,0 +1,28 @@
+{
+  "webhook_url": "https://your-server.com/webhook/onboarding",
+  "method": "POST",
+  "headers": {
+    "Content-Type": "application/json"
+  },
+  "data": {
+    "company_data": {
+      "name": "{{1.Name}}",
+      "website": "{{1.Website}}",
+      "description": "{{1.Description}}",
+      "address": "{{1.Address}}",
+      "investment_date": "{{1.Investment Date}}",
+      "co_investors": "{{1.Co-Investors}}",
+      "num_employees": "{{1.Number of Employees}}",
+      "first_time_founder": "{{1.First Time Founder}}",
+      "investment_memo_link": "{{1.Investment Memo}}"
+    },
+    "headshot_url": "{{1.Headshot}}",
+    "logo_url": "{{1.Logo}}"
+  },
+  "notes": [
+    "Replace 'your-server.com' with your actual webhook URL",
+    "Field names in {{}} must match your Notion database property names exactly",
+    "For local testing, use ngrok: https://abc123.ngrok.io/webhook/onboarding"
+  ]
+}
+

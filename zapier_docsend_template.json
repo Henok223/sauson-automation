@@ -1,0 +1,83 @@
+{
+  "zap_name": "Slauson Portfolio Onboarding with DocSend",
+  "description": "Automates portfolio company onboarding: Notion → Automation → DocSend",
+  "steps": [
+    {
+      "step": 1,
+      "app": "Notion",
+      "action": "New Database Item",
+      "description": "Trigger when a new company is added to Portfolio Companies database",
+      "settings": {
+        "database": "Portfolio Companies",
+        "filter": "Optional: Only when Status = 'Ready'"
+      }
+    },
+    {
+      "step": 2,
+      "app": "Webhooks by Zapier",
+      "action": "POST",
+      "description": "Send company data to automation server",
+      "settings": {
+        "url": "https://your-server.com/webhook/onboarding",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "data": {
+          "company_data": {
+            "name": "{{1.Name}}",
+            "website": "{{1.Website}}",
+            "description": "{{1.Description}}",
+            "address": "{{1.Address}}",
+            "investment_date": "{{1.Investment Date}}",
+            "co_investors": "{{1.Co-Investors}}",
+            "num_employees": "{{1.Number of Employees}}",
+            "first_time_founder": "{{1.First Time Founder}}",
+            "investment_memo_link": "{{1.Investment Memo}}"
+          },
+          "headshot_url": "{{1.Headshot}}",
+          "logo_url": "{{1.Logo}}"
+        }
+      }
+    },
+    {
+      "step": 3,
+      "app": "Webhooks by Zapier",
+      "action": "POST",
+      "description": "Upload PDF to DocSend",
+      "settings": {
+        "url": "https://api.docsend.com/documents",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer YOUR_DOCSEND_API_KEY",
+          "Content-Type": "multipart/form-data"
+        },
+        "body": {
+          "file": "{{2.pdf_path}}",
+          "name": "{{1.Name}} Portfolio Slide"
+        }
+      },
+      "note": "If DocSend Zapier app exists, use that instead. Otherwise use HTTP Request action."
+    },
+    {
+      "step": 4,
+      "app": "Notion",
+      "action": "Update Database Item",
+      "description": "Update Notion entry with DocSend link",
+      "settings": {
+        "database_item_id": "{{1.id}}",
+        "properties": {
+          "DocSend Link": "{{3.link}}"
+        }
+      },
+      "optional": true
+    }
+  ],
+  "notes": [
+    "Adjust field names to match your Notion database properties",
+    "Replace YOUR_DOCSEND_API_KEY with actual API key",
+    "For local testing, use ngrok: https://ngrok.com",
+    "File handling: Notion file URLs work automatically with updated webhook"
+  ]
+}
+

@@ -1,0 +1,19 @@
+{
+  "company_data": {
+    "name": "Burton Test Entry",
+    "website": "https://example.com",
+    "description": "Test company description from Notion",
+    "address": "Test Address",
+    "investment_date": "2024-12-01",
+    "co_investors": "Test Investors",
+    "num_employees": "10",
+    "first_time_founder": "false",
+    "investment_memo_link": "https://example.com/memo"
+  },
+  "headshot_url": "https://notion.so/file/example-headshot.jpg",
+  "logo_url": "https://notion.so/file/example-logo.png",
+  "notion_page_id": "abc123def456",
+  "notion_created_time": "2024-11-30T12:00:00Z",
+  "notion_last_edited": "2024-11-30T12:00:00Z"
+}
+

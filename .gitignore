@@ -1,0 +1,38 @@
+# Environment variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+temp/
+tmp/
+*.log
+
+# Test files
+examples/
+test_images/
+
+# Generated files
+*.pdf
+*.png
+*.jpg
+!examples/*.jpg
+!examples/*.png
