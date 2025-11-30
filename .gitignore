@@ -36,3 +36,7 @@ test_images/
 *.jpg
 !examples/*.jpg
 !examples/*.png
+
+# OS
+.DS_Store
+Thumbs.db
