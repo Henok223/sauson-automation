@@ -119,12 +119,17 @@ class PortfolioOnboardingAutomation:
                     if isinstance(slide_pdf, bytes):
                         with open(slide_pdf_path, 'wb') as f:
                             f.write(slide_pdf)
-                        results["canva_slide_pdf_bytes"] = slide_pdf
+                        # Store as base64 for JSON serialization
+                        import base64
+                        results["canva_slide_pdf_bytes"] = base64.b64encode(slide_pdf).decode('utf-8')
                     else:
                         # If it's already saved to path, read it
                         if os.path.exists(slide_pdf_path):
                             with open(slide_pdf_path, 'rb') as f:
-                                results["canva_slide_pdf_bytes"] = f.read()
+                                pdf_bytes = f.read()
+                                # Store as base64 for JSON serialization
+                                import base64
+                                results["canva_slide_pdf_bytes"] = base64.b64encode(pdf_bytes).decode('utf-8')
                     
                     results["canva_slide_path"] = slide_pdf_path
                 except Exception as e:

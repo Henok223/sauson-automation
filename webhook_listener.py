@@ -214,13 +214,18 @@ def handle_onboarding():
             )
             
             # Add PDF as base64 in response for download
-            # Use PDF bytes if available (read before temp dir cleanup)
+            # PDF bytes are already base64 encoded in results
             if results.get("canva_slide_pdf_bytes"):
-                pdf_bytes = results["canva_slide_pdf_bytes"]
-                pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
-                results["pdf_base64"] = pdf_base64
+                # Already base64 encoded from main.py
+                results["pdf_base64"] = results["canva_slide_pdf_bytes"]
                 results["pdf_filename"] = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
-                results["pdf_size_bytes"] = len(pdf_bytes)
+                # Calculate size from base64 (approximate)
+                import base64
+                try:
+                    pdf_bytes = base64.b64decode(results["canva_slide_pdf_bytes"])
+                    results["pdf_size_bytes"] = len(pdf_bytes)
+                except:
+                    results["pdf_size_bytes"] = 0
             elif results.get("canva_slide_path") and os.path.exists(results["canva_slide_path"]):
                 # Fallback: try to read from path (may fail if temp dir cleaned up)
                 try:
@@ -234,9 +239,22 @@ def handle_onboarding():
                     print(f"Warning: Could not read PDF file: {e}")
                     results["errors"].append(f"PDF read error: {str(e)}")
             
+            # Remove raw bytes from results (not JSON serializable)
+            if "canva_slide_pdf_bytes" in results:
+                # Already converted to base64, but keep the key for reference
+                # Actually, we already moved it to pdf_base64, so we can remove it
+                pass  # Keep it as pdf_base64 now
+            
             # Include Notion metadata in response for reference
             if notion_metadata.get("page_id"):
                 results["notion_metadata"] = notion_metadata
+            
+            # Remove any bytes objects that might cause JSON serialization issues
+            # (canva_slide_pdf_bytes should already be base64 by now)
+            if "canva_slide_pdf_bytes" in results and isinstance(results["canva_slide_pdf_bytes"], bytes):
+                # Convert to base64 if still bytes
+                results["pdf_base64"] = base64.b64encode(results["canva_slide_pdf_bytes"]).decode('utf-8')
+                del results["canva_slide_pdf_bytes"]
             
             print(f"\n{'='*60}")
             print(f"Processing complete. Success: {results.get('success')}")
