@@ -214,14 +214,25 @@ def handle_onboarding():
             )
             
             # Add PDF as base64 in response for download
-            if results.get("canva_slide_path") and os.path.exists(results["canva_slide_path"]):
-                # Read PDF and encode as base64 for download
-                with open(results["canva_slide_path"], 'rb') as f:
-                    pdf_bytes = f.read()
-                    pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
-                    results["pdf_base64"] = pdf_base64
-                    results["pdf_filename"] = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
-                    results["pdf_path"] = results["canva_slide_path"]
+            # Use PDF bytes if available (read before temp dir cleanup)
+            if results.get("canva_slide_pdf_bytes"):
+                pdf_bytes = results["canva_slide_pdf_bytes"]
+                pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                results["pdf_base64"] = pdf_base64
+                results["pdf_filename"] = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
+                results["pdf_size_bytes"] = len(pdf_bytes)
+            elif results.get("canva_slide_path") and os.path.exists(results["canva_slide_path"]):
+                # Fallback: try to read from path (may fail if temp dir cleaned up)
+                try:
+                    with open(results["canva_slide_path"], 'rb') as f:
+                        pdf_bytes = f.read()
+                        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
+                        results["pdf_base64"] = pdf_base64
+                        results["pdf_filename"] = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
+                        results["pdf_size_bytes"] = len(pdf_bytes)
+                except Exception as e:
+                    print(f"Warning: Could not read PDF file: {e}")
+                    results["errors"].append(f"PDF read error: {str(e)}")
             
             # Include Notion metadata in response for reference
             if notion_metadata.get("page_id"):

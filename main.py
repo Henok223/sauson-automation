@@ -116,6 +116,10 @@ class PortfolioOnboardingAutomation:
                         )
                     
                     results["canva_slide_path"] = slide_pdf_path
+                    # Read PDF bytes before temp directory is cleaned up
+                    if os.path.exists(slide_pdf_path):
+                        with open(slide_pdf_path, 'rb') as f:
+                            results["canva_slide_pdf_bytes"] = f.read()
                 except Exception as e:
                     print(f"Warning: Canva slide generation failed: {e}")
                     results["errors"].append(f"Canva: {str(e)}")
