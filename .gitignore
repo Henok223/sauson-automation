@@ -42,6 +42,7 @@ test_images/
 *.jpg
 !examples/*.jpg
 !examples/*.png
+!templates/*.pdf  # Allow template PDFs in templates directory
 
 # OS
 .DS_Store

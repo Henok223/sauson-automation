@@ -25,7 +25,19 @@ class HTMLSlideGenerator:
     def __init__(self):
         from config import Config
         self.template_path = Config.SLIDE_TEMPLATE_PATH if hasattr(Config, 'SLIDE_TEMPLATE_PATH') else None
-        self.map_template_path = '/Users/henoktewolde/Downloads/SLAUSON&CO. (1).pdf'  # Separate map template
+        # Map template path - check config first, then try default locations
+        self.map_template_path = getattr(Config, 'MAP_TEMPLATE_PATH', None) if hasattr(Config, 'MAP_TEMPLATE_PATH') else None
+        if not self.map_template_path:
+            # Try default locations (relative to project root, then absolute)
+            default_paths = [
+                'templates/map_template.pdf',
+                'templates/SLAUSON&CO. (1).pdf',
+                '/Users/henoktewolde/Downloads/SLAUSON&CO. (1).pdf'
+            ]
+            for path in default_paths:
+                if os.path.exists(path):
+                    self.map_template_path = path
+                    break
     
     def _pdf_to_image(self, pdf_path: str) -> Image.Image:
         """Convert first page of PDF to PIL Image."""

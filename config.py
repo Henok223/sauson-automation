@@ -37,6 +37,7 @@ class Config:
     
     # Slide Template
     SLIDE_TEMPLATE_PATH = os.getenv("SLIDE_TEMPLATE_PATH")  # Path to template slide image
+    MAP_TEMPLATE_PATH = os.getenv("MAP_TEMPLATE_PATH")  # Path to map template PDF
     
     # Google Drive
     GOOGLE_DRIVE_CREDENTIALS_JSON = os.getenv("GOOGLE_DRIVE_CREDENTIALS_JSON")  # JSON string of credentials
