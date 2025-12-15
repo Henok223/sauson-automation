@@ -205,6 +205,75 @@ class CanvaIntegration:
         
         # If all endpoints failed, raise error (no fallback)
         raise Exception(f"Failed to upload {image_type} to Canva from all endpoints. Cannot proceed without Canva template.")
+
+    def upload_pdf_asset(self, pdf_bytes: bytes, filename: str = "slide.pdf") -> str:
+        """
+        Upload a PDF as an asset to Canva and return the asset/upload ID.
+        This lets us place the generated slide PDF into a Canva design if needed.
+        """
+        print(f"   Uploading PDF asset to Canva ({filename})...")
+        upload_endpoints = [
+            f"{self.base_url}/assets/upload",
+            f"{self.base_url}/assets",
+            "https://api.canva.com/rest/v1/assets/upload",
+            "https://api.canva.com/rest/v1/assets",
+            f"{self.base_url}/uploads",
+            "https://api.canva.com/rest/v1/uploads",
+        ]
+
+        import base64
+        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+        for endpoint in upload_endpoints:
+            try:
+                # Try JSON base64 first
+                payload = {
+                    "file": {
+                        "data": pdf_base64,
+                        "mime_type": "application/pdf",
+                        "filename": filename,
+                    }
+                }
+                response = self._make_authenticated_request(
+                    "post",
+                    endpoint,
+                    json=payload,
+                    headers={"Content-Type": "application/json"},
+                )
+                if response.status_code in [200, 201]:
+                    try:
+                        result = response.json()
+                        upload_id = result.get("id") or result.get("upload_id") or result.get("uploadId")
+                        if upload_id:
+                            print(f"   ✓ Uploaded PDF asset to Canva: {upload_id}")
+                            return upload_id
+                    except Exception as e:
+                        print(f"   Failed to parse PDF upload response: {e}")
+                        print(f"   Response: {response.text[:200]}")
+
+                # If JSON fails, try multipart/form-data
+                if response.status_code not in [200, 201]:
+                    files = {"file": (filename, pdf_bytes, "application/pdf")}
+                    response = self._make_authenticated_request("post", endpoint, files=files)
+                    if response.status_code in [200, 201]:
+                        try:
+                            result = response.json()
+                            upload_id = result.get("id") or result.get("upload_id") or result.get("uploadId")
+                            if upload_id:
+                                print(f"   ✓ Uploaded PDF asset to Canva: {upload_id}")
+                                return upload_id
+                        except Exception as e:
+                            print(f"   Failed to parse multipart PDF upload response: {e}")
+                            print(f"   Response: {response.text[:200]}")
+
+            except Exception as e:
+                error_msg = str(e)
+                print(f"   PDF upload failed with {endpoint}: {error_msg}")
+                if "401" in error_msg or "403" in error_msg or "authentication" in error_msg.lower():
+                    raise
+                continue
+
+        raise Exception("Failed to upload PDF asset to Canva from all endpoints.")
     
     def _load_tokens(self):
         """Load stored OAuth tokens from file."""

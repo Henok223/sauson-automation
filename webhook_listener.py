@@ -474,7 +474,25 @@ def handle_onboarding():
                     print(f"Warning: Google Drive upload failed: {e}")
                     results["errors"].append(f"Google Drive: {str(e)}")
                 
-                # Step 6: DocSend (optional - uses Google Drive sync)
+                # Step 6: Upload PDF to Canva as asset (optional)
+                try:
+                    has_canva_creds = (
+                        (Config.CANVA_API_KEY or (Config.CANVA_CLIENT_ID and Config.CANVA_CLIENT_SECRET))
+                        and Config.CANVA_TEMPLATE_ID
+                    )
+                    if has_canva_creds:
+                        print("Uploading slide PDF to Canva as asset...")
+                        canva = CanvaIntegration()
+                        canva_asset_id = canva.upload_pdf_asset(slide_pdf_bytes, filename)
+                        results["canva_asset_id"] = canva_asset_id
+                        print(f"✓ Uploaded PDF to Canva assets: {canva_asset_id}")
+                    else:
+                        print("Skipping Canva PDF upload (credentials/template not configured)")
+                except Exception as e:
+                    print(f"Warning: Canva PDF upload failed: {e}")
+                    results["errors"].append(f"Canva PDF upload: {str(e)}")
+                
+                # Step 7: DocSend (optional - uses Google Drive sync)
                 print("DocSend integration via Google Drive...")
                 docsend_link = None
                 

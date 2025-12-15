@@ -362,7 +362,7 @@ class HTMLSlideGenerator:
         
         # Company name position: aligned with founders but moved a bit to the left, significantly raised
         name_x = founders_text_x - 50  # Moved a bit to the left from founders position
-        name_y = 80  # Significantly raised (top of slide)
+        name_y = 120  # Lowered from 80 to move closer to content
         
         # Use orange color similar to the rest of the slide (lighter, more vibrant orange)
         name_color = (255, 140, 0)  # More vibrant orange, similar to slide orange
@@ -517,11 +517,12 @@ class HTMLSlideGenerator:
             yellow = (255, 215, 0)  # Yellow for the block
             black = (0, 0, 0)  # Black text on yellow background
             
-            # Use larger, bold font for location text
-            location_font = self._load_font(30, bold=True)
+            # Use larger, extra-bold appearance for location text
+            location_font = self._load_font(32, bold=True)
+            location_stroke_width = 1
             
             # Get text dimensions with larger font
-            label_bbox = draw.textbbox((0, 0), location, font=location_font)
+            label_bbox = draw.textbbox((0, 0), location, font=location_font, stroke_width=location_stroke_width)
             text_width = label_bbox[2] - label_bbox[0]
             text_height = label_bbox[3] - label_bbox[1]
             
@@ -531,9 +532,9 @@ class HTMLSlideGenerator:
             box_width = text_width + box_padding_x * 2
             box_height = text_height + box_padding_y * 2
             
-            # Position box with bigger space from pin (moved further right and down)
+            # Position box with more space from pin; raise slightly to avoid being too low
             box_x = pin_x + 40  # More space from pin (was 15, now 40)
-            box_y = pin_y + 20  # More space from pin (was -10, now +20)
+            box_y = pin_y - 10  # Raised (was +20)
             
             # Make sure box stays within map bounds
             if box_x + box_width > map_area_x + map_width:
@@ -541,14 +542,20 @@ class HTMLSlideGenerator:
             if box_y + box_height > map_area_y + map_height:
                 box_y = pin_y - box_height - 20  # Move up if it would go outside
             
-            # Erase old location area (keep transparent; no colored background)
-            location_bg = self._get_dominant_color(template, (box_x - 10, box_y - 10, box_width + 20, box_height + 20))
-            draw.rectangle([(box_x - 10, box_y - 10), (box_x + box_width + 10, box_y + box_height + 10)], fill=location_bg)
+            # Draw yellow box (similar to other section labels)
+            draw.rectangle([(box_x, box_y), (box_x + box_width, box_y + box_height)], fill=yellow)
             
-            # Draw location text (no background box, transparent behind text)
+            # Draw location text in the yellow box (centered with padding)
             text_x = box_x + box_padding_x
             text_y = box_y + box_padding_y
-            draw.text((text_x, text_y), location, fill=black, font=location_font)
+            draw.text(
+                (text_x, text_y),
+                location,
+                fill=black,
+                font=location_font,
+                stroke_width=location_stroke_width,
+                stroke_fill=black
+            )
             
         except Exception as e:
             print(f"Warning: Map update failed: {e}")
