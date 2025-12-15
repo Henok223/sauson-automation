@@ -17,5 +17,6 @@ google-api-python-client>=2.100.0
 xhtml2pdf>=0.2.17
 jinja2>=3.1.0
 pdf2image>=1.16.0  # For PDF template support (requires poppler-utils system package)
+numpy>=1.26.0  # For image manipulation and transparency
 # weasyprint>=60.0  # Optional - requires system libraries
 
