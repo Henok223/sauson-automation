@@ -43,6 +43,7 @@ test_images/
 !examples/*.jpg
 !examples/*.png
 !templates/*.pdf  # Allow template PDFs in templates directory
+!SLAUSON&CO.Template.pdf  # Allow template PDF in project root
 
 # OS
 .DS_Store
