@@ -346,7 +346,7 @@ def handle_onboarding():
                 # Add map image to company_data for Canva
                 company_data["map_image"] = map_bytes
                 
-                # Step 4: Create slide (HTML → PDF preferred, then Canva, then Gemini fallback)
+                # Step 4: Create slide (HTML → PDF preferred, then Canva if configured)
                 print("Creating slide...")
                 slide_pdf_path = os.path.join(temp_dir, "slide.pdf")
                 
@@ -378,7 +378,6 @@ def handle_onboarding():
                         
                         # Try Canva only if credentials are available
                         canva_error = None
-                        from config import Config
                         has_canva_creds = (
                             (Config.CANVA_API_KEY or (Config.CANVA_CLIENT_ID and Config.CANVA_CLIENT_SECRET)) 
                             and Config.CANVA_TEMPLATE_ID
