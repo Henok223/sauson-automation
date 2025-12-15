@@ -1,5 +1,11 @@
 # Environment variables
 .env
+.env.bak
+
+# Secrets and credentials
+token.json
+credentials.json
+canva_tokens.json
 
 # Python
 __pycache__/

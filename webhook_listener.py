@@ -4,9 +4,17 @@ Can be used with Zapier, Make.com, or as a standalone Flask server.
 """
 from flask import Flask, request, jsonify
 from main import PortfolioOnboardingAutomation
+from image_processor import ImageProcessor
+from canva_integration import CanvaIntegration
+from html_slide_generator import HTMLSlideGenerator
+from google_drive_integration import GoogleDriveIntegration
+from docsend_integration import DocSendIntegration
+from notion_integration import NotionIntegration
+from config import Config
 import os
 import tempfile
 import base64
+import io
 import requests
 from urllib.parse import urlparse
 
@@ -105,17 +113,67 @@ def handle_onboarding():
         print(f"\n{'='*60}")
         print(f"Received webhook request: {request.method} {request.path}")
         print(f"Payload keys: {list(data.keys()) if data else 'None'}")
-        if data and "company_data" in data:
-            company_data = data["company_data"]
-            print(f"Company data keys: {list(company_data.keys()) if isinstance(company_data, dict) else 'Not a dict'}")
-            if isinstance(company_data, dict):
-                print(f"Company name: {company_data.get('name', 'N/A')}")
         print(f"{'='*60}\n")
         
-        if not data or "company_data" not in data:
-            return jsonify({"error": "Missing company_data"}), 400
+        if not data:
+            return jsonify({"error": "Missing data"}), 400
         
-        company_data = data["company_data"]
+        # Handle both nested and flat formats
+        # Format 1: Nested: {"company_data": {"name": "...", ...}}
+        # Format 2: Flat: {"company_data__name": "...", "company_data__description": "...", ...}
+        company_data = {}
+        
+        if "company_data" in data and isinstance(data["company_data"], dict):
+            # Nested format
+            company_data = data["company_data"]
+        else:
+            # Flat format (company_data__field_name)
+            # Extract all fields that start with "company_data__"
+            for key, value in data.items():
+                if key.startswith("company_data__"):
+                    # Remove "company_data__" prefix
+                    field_name = key.replace("company_data__", "")
+                    company_data[field_name] = value
+                elif key not in ["headshot_url", "logo_url", "notion_page_id", "notion_created_time", "notion_last_edited", "status"]:
+                    # Also include other fields that might be company data
+                    company_data[key] = value
+        
+        # If still no company data, try to build from available fields
+        if not company_data:
+            # Try to extract from flat structure
+            company_data = {
+                "name": data.get("company_data__name") or data.get("name", ""),
+                "description": data.get("company_data__description") or data.get("description", ""),
+                "address": data.get("company_data__address") or data.get("address") or data.get("location", ""),
+                "location": data.get("company_data__address") or data.get("address") or data.get("location", ""),
+                "investment_date": data.get("company_data__investment_date") or data.get("investment_date", ""),
+                "investment_round": data.get("company_data__investment_round") or data.get("investment_round", ""),
+                "founders": data.get("company_data__founders") or data.get("founders", ""),
+                "co_investors": data.get("company_data__co_investors") or data.get("co_investors", ""),
+                "background": data.get("company_data__background") or data.get("background", ""),
+            }
+        
+        # Normalize founders and co_investors - convert comma-separated strings to lists if needed
+        if "founders" in company_data and isinstance(company_data["founders"], str):
+            # Split by comma if it's a string
+            founders_str = company_data["founders"].strip()
+            if founders_str:
+                company_data["founders"] = [f.strip() for f in founders_str.split(",") if f.strip()]
+            else:
+                company_data["founders"] = []
+        
+        if "co_investors" in company_data and isinstance(company_data["co_investors"], str):
+            # Split by comma if it's a string
+            co_investors_str = company_data["co_investors"].strip()
+            if co_investors_str:
+                company_data["co_investors"] = [c.strip() for c in co_investors_str.split(",") if c.strip()]
+            else:
+                company_data["co_investors"] = []
+        
+        print(f"Company data extracted: {list(company_data.keys())}")
+        print(f"Company name: {company_data.get('name', 'N/A')}")
+        print(f"Founders: {company_data.get('founders', [])}")
+        print(f"Co-investors: {company_data.get('co_investors', [])}")
         
         # Store Notion metadata if provided (for reference)
         notion_metadata = {
@@ -205,62 +263,246 @@ def handle_onboarding():
                 placeholder = Image.new('RGB', (200, 200), color='lightgray')
                 placeholder.save(logo_path)
             
-            # Process onboarding (Notion is optional since Zapier handles it)
-            automation = PortfolioOnboardingAutomation(require_notion=False)
-            results = automation.process_onboarding(
-                company_data,
-                headshot_path,
-                logo_path
-            )
+            # NEW WORKFLOW: Process headshots, generate map, create slide, upload, update Notion
             
-            # Add PDF as base64 in response for download
-            # PDF bytes are already base64 encoded in results
-            if results.get("canva_slide_pdf_bytes"):
-                # Already base64 encoded from main.py
-                results["pdf_base64"] = results["canva_slide_pdf_bytes"]
-                results["pdf_filename"] = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
-                # Calculate size from base64 (approximate)
-                import base64
+            results = {
+                "success": False,
+                "google_drive_link": None,
+                "docsend_link": None,
+                "notion_page_id": notion_metadata.get("page_id"),
+                "errors": []
+            }
+            
+            try:
+                # Step 1: Process headshots with Gemini (background removal, greyscale, combine)
+                print("Processing headshots with Gemini...")
+                headshot_paths = []
+                
+                # Collect all headshot paths (could be multiple founders)
+                if headshot_path:
+                    headshot_paths.append(headshot_path)
+                
+                # Check if there are multiple headshots in company_data
+                if "headshots" in company_data and isinstance(company_data["headshots"], list):
+                    for hs_data in company_data["headshots"]:
+                        if isinstance(hs_data, str):
+                            # It's a URL or path
+                            hs_path = handle_image_input(hs_data, temp_dir, f"headshot_{len(headshot_paths)}.jpg")
+                            headshot_paths.append(hs_path)
+                
+                # Process headshots with Gemini
+                if headshot_paths:
+                    try:
+                        combined_headshot_path = os.path.join(temp_dir, "combined_headshots.png")
+                        combined_headshot_bytes = ImageProcessor.process_headshots_with_gemini(
+                            headshot_paths,
+                            combined_headshot_path
+                        )
+                        print("✓ Headshots processed and combined")
+                    except Exception as e:
+                        print(f"Warning: Gemini headshot processing failed: {e}")
+                        results["errors"].append(f"Headshot processing: {str(e)}")
+                        # Use first headshot as fallback
+                        if headshot_paths:
+                            with open(headshot_paths[0], 'rb') as f:
+                                combined_headshot_bytes = f.read()
+                else:
+                    # Create placeholder
+                    from PIL import Image
+                    placeholder = Image.new('RGB', (400, 400), color='gray')
+                    placeholder_bytes = io.BytesIO()
+                    placeholder.save(placeholder_bytes, format='PNG')
+                    combined_headshot_bytes = placeholder_bytes.getvalue()
+                
+                # Step 2: Generate map with Gemini
+                print("Generating map with Gemini...")
+                location = company_data.get("address", company_data.get("location", ""))
+                # Extract city name if address is full address
+                if "," in location:
+                    location = location.split(",")[0].strip()
+                
+                map_path = os.path.join(temp_dir, "map.png")
                 try:
-                    pdf_bytes = base64.b64decode(results["canva_slide_pdf_bytes"])
-                    results["pdf_size_bytes"] = len(pdf_bytes)
-                except:
-                    results["pdf_size_bytes"] = 0
-            elif results.get("canva_slide_path") and os.path.exists(results["canva_slide_path"]):
-                # Fallback: try to read from path (may fail if temp dir cleaned up)
-                try:
-                    with open(results["canva_slide_path"], 'rb') as f:
-                        pdf_bytes = f.read()
-                        pdf_base64 = base64.b64encode(pdf_bytes).decode('utf-8')
-                        results["pdf_base64"] = pdf_base64
-                        results["pdf_filename"] = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
-                        results["pdf_size_bytes"] = len(pdf_bytes)
+                    map_bytes = ImageProcessor.generate_map_with_gemini(location, map_path)
+                    print(f"✓ Map generated for {location}")
                 except Exception as e:
-                    print(f"Warning: Could not read PDF file: {e}")
-                    results["errors"].append(f"PDF read error: {str(e)}")
+                    print(f"Warning: Gemini map generation failed: {e}")
+                    results["errors"].append(f"Map generation: {str(e)}")
+                    # Create placeholder map
+                    from PIL import Image, ImageDraw, ImageFont
+                    img = Image.new('RGB', (800, 600), color=(40, 40, 40))
+                    draw = ImageDraw.Draw(img)
+                    draw.rectangle([100, 100, 700, 500], outline=(255, 140, 0), width=3)
+                    try:
+                        font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 24)
+                    except:
+                        font = ImageFont.load_default()
+                    draw.text((400, 300), location, fill=(255, 255, 0), font=font, anchor="mm")
+                    placeholder_bytes = io.BytesIO()
+                    img.save(placeholder_bytes, format='PNG')
+                    map_bytes = placeholder_bytes.getvalue()
+                
+                # Step 3: Prepare company data for Canva
+                # Add map image to company_data for Canva
+                company_data["map_image"] = map_bytes
+                
+                # Step 4: Create slide (HTML → PDF preferred, then Canva, then Gemini fallback)
+                print("Creating slide...")
+                slide_pdf_path = os.path.join(temp_dir, "slide.pdf")
+                
+                try:
+                    # Save combined headshot temporarily
+                    temp_headshot_path = os.path.join(temp_dir, "headshot_combined.png")
+                    with open(temp_headshot_path, 'wb') as f:
+                        f.write(combined_headshot_bytes)
+                    
+                    # Get map path if available
+                    map_path = os.path.join(temp_dir, "map.png") if os.path.exists(os.path.join(temp_dir, "map.png")) else None
+                    
+                    slide_pdf_bytes = None
+                    
+                    # Try HTML → PDF first (simplest, full control)
+                    try:
+                        print("📄 Using HTML → PDF method...")
+                        html_gen = HTMLSlideGenerator()
+                        slide_pdf_bytes = html_gen.create_slide(
+                            company_data,
+                            temp_headshot_path,
+                            logo_path,
+                            map_path=map_path
+                        )
+                        print("✓ Slide created with HTML → PDF")
+                    except Exception as html_error:
+                        print(f"⚠️  HTML → PDF failed: {html_error}")
+                        print("   Trying Canva...")
+                        
+                        # Fallback to Canva
+                        try:
+                            print("🎨 Using Canva template...")
+                            canva = CanvaIntegration()
+                            slide_pdf_bytes = canva.create_slide_alternative(
+                                company_data,
+                                temp_headshot_path,
+                                logo_path,
+                                map_path=map_path
+                            )
+                            print("✓ Slide created with Canva")
+                        except Exception as canva_error:
+                            print(f"⚠️  Canva failed: {canva_error}")
+                            print("   Falling back to Gemini method...")
+                            
+                            # Fallback to Gemini method (uses template image as base)
+                            try:
+                                from gemini_slide_generator import GeminiSlideGenerator
+                                gemini_gen = GeminiSlideGenerator()
+                                if not gemini_gen.template_path or not os.path.exists(gemini_gen.template_path):
+                                    raise ValueError(
+                                        f"Template image not found. Please set SLIDE_TEMPLATE_PATH in .env to point to your template image.\n"
+                                        f"Expected: {gemini_gen.template_path}"
+                                    )
+                                slide_pdf_bytes = gemini_gen.create_slide_exact_design(
+                                    company_data,
+                                    temp_headshot_path,
+                                    logo_path,
+                                    map_path=map_path
+                                )
+                                print("✓ Slide created with Gemini method (using template image)")
+                            except Exception as gemini_error:
+                                print(f"❌ All methods failed!")
+                                raise Exception(
+                                    f"HTML → PDF error: {html_error}. "
+                                    f"Canva error: {canva_error}. "
+                                    f"Gemini error: {gemini_error}"
+                                )
+                    
+                except Exception as e:
+                    print(f"Error creating slide: {e}")
+                    results["errors"].append(f"Slide creation: {str(e)}")
+                    raise
+                
+                # Step 5: Upload PDF to Google Drive
+                print("Uploading PDF to Google Drive...")
+                google_drive_link = None
+                try:
+                    drive = GoogleDriveIntegration()
+                    filename = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
+                    google_drive_link = drive.upload_pdf(
+                        slide_pdf_bytes,
+                        filename,
+                        folder_id=Config.GOOGLE_DRIVE_FOLDER_ID
+                    )
+                    results["google_drive_link"] = google_drive_link
+                    print(f"✓ Uploaded to Google Drive: {google_drive_link}")
+                except Exception as e:
+                    print(f"Warning: Google Drive upload failed: {e}")
+                    results["errors"].append(f"Google Drive: {str(e)}")
+                
+                # Step 6: DocSend (optional - uses Google Drive sync)
+                print("DocSend integration via Google Drive...")
+                docsend_link = None
+                
+                # Since DocSend syncs from Google Drive automatically,
+                # we can either:
+                # 1. Skip DocSend API upload (relies on Google Drive sync)
+                # 2. Or try to get DocSend link if API is available
+                
+                if Config.DOCSEND_API_KEY and Config.DOCSEND_API_KEY != "your_docsend_api_key_here":
+                    # Try DocSend API upload if API key is configured
+                    try:
+                        docsend = DocSendIntegration()
+                        docsend_link = docsend.upload_individual_slide(
+                            slide_pdf_bytes,
+                            company_data.get("name", "Company")
+                        )
+                        results["docsend_link"] = docsend_link
+                        print(f"✓ Uploaded to DocSend via API: {docsend_link}")
+                    except Exception as e:
+                        print(f"Warning: DocSend API upload failed: {e}")
+                        results["errors"].append(f"DocSend API: {str(e)}")
+                        # Fall through to Google Drive sync method
+                else:
+                    # DocSend will auto-sync from Google Drive
+                    print("✓ DocSend will auto-sync from Google Drive")
+                    print("  Note: DocSend link will need to be retrieved manually or via DocSend API")
+                    # You can manually get the DocSend link from the Google Drive file
+                    # Or set up DocSend API later to get the link programmatically
+                
+                # Step 7: Update Notion record
+                print("Updating Notion record...")
+                notion_page_id = notion_metadata.get("page_id")
+                if notion_page_id and Config.NOTION_API_KEY:
+                    try:
+                        notion = NotionIntegration()
+                        notion.update_company_record(
+                            notion_page_id,
+                            google_drive_link=google_drive_link,
+                            docsend_link=docsend_link,
+                            status="completed"
+                        )
+                        print("✓ Notion record updated")
+                    except Exception as e:
+                        print(f"Warning: Notion update failed: {e}")
+                        results["errors"].append(f"Notion update: {str(e)}")
+                else:
+                    print("Skipping Notion update (no page ID or API key)")
+                
+                # Step 8: Mark as successful
+                results["success"] = True
+                print("\n" + "="*60)
+                print("✓ Processing complete!")
+                print(f"  Google Drive: {google_drive_link or 'N/A'}")
+                print(f"  DocSend: {docsend_link or 'N/A'}")
+                print("="*60 + "\n")
+                
+            except Exception as e:
+                import traceback
+                print(f"\n❌ ERROR IN WORKFLOW:")
+                print(f"Error: {str(e)}")
+                print(f"Traceback:\n{traceback.format_exc()}\n")
+                results["errors"].append(str(e))
+                results["success"] = False
             
-            # Remove raw bytes from results (not JSON serializable)
-            if "canva_slide_pdf_bytes" in results:
-                # Already converted to base64, but keep the key for reference
-                # Actually, we already moved it to pdf_base64, so we can remove it
-                pass  # Keep it as pdf_base64 now
-            
-            # Include Notion metadata in response for reference
-            if notion_metadata.get("page_id"):
-                results["notion_metadata"] = notion_metadata
-            
-            # Remove any bytes objects that might cause JSON serialization issues
-            # (canva_slide_pdf_bytes should already be base64 by now)
-            if "canva_slide_pdf_bytes" in results and isinstance(results["canva_slide_pdf_bytes"], bytes):
-                # Convert to base64 if still bytes
-                results["pdf_base64"] = base64.b64encode(results["canva_slide_pdf_bytes"]).decode('utf-8')
-                del results["canva_slide_pdf_bytes"]
-            
-            print(f"\n{'='*60}")
-            print(f"Processing complete. Success: {results.get('success')}")
-            if results.get('errors'):
-                print(f"Errors: {results['errors']}")
-            print(f"{'='*60}\n")
+            # Return JSON response to Zapier
             return jsonify(results), 200 if results["success"] else 500
             
     except Exception as e:

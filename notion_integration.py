@@ -205,4 +205,100 @@ class NotionIntegration:
         if response["results"]:
             return response["results"][0]
         return None
+    
+    def update_company_record(
+        self,
+        page_id: str,
+        google_drive_link: Optional[str] = None,
+        docsend_link: Optional[str] = None,
+        status: str = "completed"
+    ) -> bool:
+        """
+        Update a company record with Google Drive link, DocSend link, and status.
+        
+        Args:
+            page_id: Notion page ID of the company record
+            google_drive_link: Optional Google Drive shareable link
+            docsend_link: Optional DocSend shareable link
+            status: Status to set (default: "completed")
+            
+        Returns:
+            True if update successful
+        """
+        properties = {}
+        
+        # Update Google Drive link if provided
+        if google_drive_link:
+            # Try different possible property names
+            for prop_name in ["Google Drive Link", "Drive Link", "PDF Link", "Slide Link"]:
+                try:
+                    properties[prop_name] = {"url": google_drive_link}
+                    break
+                except:
+                    pass
+        
+        # Update DocSend link if provided
+        if docsend_link:
+            # Try different possible property names
+            for prop_name in ["DocSend Link", "DocSend", "Presentation Link"]:
+                try:
+                    properties[prop_name] = {"url": docsend_link}
+                    break
+                except:
+                    pass
+        
+        # Update status
+        if status:
+            # Try different possible property names
+            for prop_name in ["Status", "Slide Status", "Processing Status", "Completion Status"]:
+                try:
+                    # Status could be a select or text field
+                    properties[prop_name] = {"select": {"name": status}}
+                    break
+                except:
+                    try:
+                        properties[prop_name] = {"rich_text": [{"text": {"content": status}}]}
+                        break
+                    except:
+                        pass
+        
+        if not properties:
+            print("Warning: No properties to update in Notion")
+            return False
+        
+        try:
+            self.client.pages.update(
+                page_id=page_id,
+                properties=properties
+            )
+            return True
+        except Exception as e:
+            print(f"Error updating Notion record: {e}")
+            # Try updating properties one by one
+            for prop_name, prop_value in properties.items():
+                try:
+                    self.client.pages.update(
+                        page_id=page_id,
+                        properties={prop_name: prop_value}
+                    )
+                except Exception as e2:
+                    print(f"Warning: Could not update property '{prop_name}': {e2}")
+            return False
+    
+    def get_company_by_page_id(self, page_id: str) -> Optional[Dict]:
+        """
+        Get company record by page ID.
+        
+        Args:
+            page_id: Notion page ID
+            
+        Returns:
+            Company page data or None if not found
+        """
+        try:
+            response = self.client.pages.retrieve(page_id=page_id)
+            return response
+        except Exception as e:
+            print(f"Error retrieving Notion page: {e}")
+            return None
 

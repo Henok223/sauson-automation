@@ -18,6 +18,8 @@ class Config:
     # Canva
     CANVA_API_KEY = os.getenv("CANVA_API_KEY")
     CANVA_TEMPLATE_ID = os.getenv("CANVA_TEMPLATE_ID")
+    CANVA_CLIENT_ID = os.getenv("CANVA_CLIENT_ID")
+    CANVA_CLIENT_SECRET = os.getenv("CANVA_CLIENT_SECRET")
     
     # DocSend
     DOCSEND_API_KEY = os.getenv("DOCSEND_API_KEY")
@@ -32,6 +34,14 @@ class Config:
     
     # Google Gemini
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+    
+    # Slide Template
+    SLIDE_TEMPLATE_PATH = os.getenv("SLIDE_TEMPLATE_PATH")  # Path to template slide image
+    
+    # Google Drive
+    GOOGLE_DRIVE_CREDENTIALS_JSON = os.getenv("GOOGLE_DRIVE_CREDENTIALS_JSON")  # JSON string of credentials
+    GOOGLE_SERVICE_ACCOUNT_PATH = os.getenv("GOOGLE_SERVICE_ACCOUNT_PATH")  # Path to service account JSON file
+    GOOGLE_DRIVE_FOLDER_ID = os.getenv("GOOGLE_DRIVE_FOLDER_ID")  # Optional folder ID to upload to
     
     # Granola (Future)
     GRANOLA_API_KEY = os.getenv("GRANOLA_API_KEY")

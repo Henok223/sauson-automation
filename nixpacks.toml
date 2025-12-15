@@ -1,9 +1,2 @@
 [phases.setup]
-nixPkgs = ["python3", "pip"]
-
-[phases.install]
-cmds = ["pip install -r requirements.txt"]
-
-[start]
-cmd = "gunicorn --bind 0.0.0.0:$PORT --workers 2 --timeout 120 webhook_listener:app"
-
+nixPkgs = ["poppler"]

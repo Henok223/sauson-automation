@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: sauson-automation-3
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn webhook_listener:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PORT
+        value: 5001
+      - key: FLASK_DEBUG
+        value: false
+      - key: PYTHON_VERSION
+        value: 3.11.0
+    healthCheckPath: /health
+
