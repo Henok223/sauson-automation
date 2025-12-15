@@ -113,10 +113,14 @@ def handle_onboarding():
         print(f"\n{'='*60}")
         print(f"Received webhook request: {request.method} {request.path}")
         print(f"Payload keys: {list(data.keys()) if data else 'None'}")
+        if data:
+            print(f"Payload sample (first 500 chars): {str(data)[:500]}")
         print(f"{'='*60}\n")
         
         if not data:
-            return jsonify({"error": "Missing data"}), 400
+            error_msg = "Missing data in request body"
+            print(f"❌ ERROR: {error_msg}")
+            return jsonify({"error": error_msg, "success": False}), 400
         
         # Handle both nested and flat formats
         # Format 1: Nested: {"company_data": {"name": "...", ...}}
@@ -126,6 +130,7 @@ def handle_onboarding():
         if "company_data" in data and isinstance(data["company_data"], dict):
             # Nested format
             company_data = data["company_data"]
+            print("✓ Found nested company_data format")
         else:
             # Flat format (company_data__field_name)
             # Extract all fields that start with "company_data__"
@@ -140,6 +145,7 @@ def handle_onboarding():
         
         # If still no company data, try to build from available fields
         if not company_data:
+            print("⚠️  No nested company_data found, trying flat format extraction...")
             # Try to extract from flat structure
             company_data = {
                 "name": data.get("company_data__name") or data.get("name", ""),
@@ -171,9 +177,48 @@ def handle_onboarding():
                 company_data["co_investors"] = []
         
         print(f"Company data extracted: {list(company_data.keys())}")
-        print(f"Company name: {company_data.get('name', 'N/A')}")
+        print(f"Company name: '{company_data.get('name', '')}'")
+        print(f"Description: '{company_data.get('description', '')[:50]}...' (first 50 chars)")
+        print(f"Address: '{company_data.get('address', '')}'")
         print(f"Founders: {company_data.get('founders', [])}")
         print(f"Co-investors: {company_data.get('co_investors', [])}")
+        print(f"Background: '{company_data.get('background', '')[:50]}...' (first 50 chars)")
+        
+        # Validate required fields
+        required_fields = {
+            "name": company_data.get("name", "").strip(),
+            "description": company_data.get("description", "").strip(),
+            "address": company_data.get("address", company_data.get("location", "")).strip(),
+        }
+        
+        missing_fields = [field for field, value in required_fields.items() if not value]
+        
+        if missing_fields:
+            error_msg = f"Missing required company data fields: {', '.join(missing_fields)}. "
+            error_msg += f"Received payload keys: {list(data.keys())}. "
+            error_msg += f"Company data keys: {list(company_data.keys())}. "
+            error_msg += "Please ensure Zapier sends: company_data__name, company_data__description, company_data__address (or company_data__location)"
+            print(f"❌ VALIDATION ERROR: {error_msg}")
+            return jsonify({
+                "error": error_msg,
+                "success": False,
+                "missing_fields": missing_fields,
+                "received_keys": list(data.keys()),
+                "company_data_keys": list(company_data.keys())
+            }), 400
+        
+        # Warn about missing optional but important fields
+        optional_fields = {
+            "founders": company_data.get("founders", []),
+            "co_investors": company_data.get("co_investors", []),
+            "background": company_data.get("background", "").strip(),
+            "investment_round": company_data.get("investment_round", "").strip(),
+        }
+        
+        missing_optional = [field for field, value in optional_fields.items() if not value]
+        if missing_optional:
+            print(f"⚠️  Warning: Missing optional fields: {', '.join(missing_optional)}")
+            print("   Slide will be generated but may have empty sections")
         
         # Store Notion metadata if provided (for reference)
         notion_metadata = {
