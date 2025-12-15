@@ -17,9 +17,35 @@ class GeminiSlideGenerator:
     """Generate slides using template image as base."""
     
     def __init__(self):
-        """Initialize Gemini client."""
+        """Initialize Gemini client and resolve template path."""
         self.api_key = Config.GEMINI_API_KEY if hasattr(Config, 'GEMINI_API_KEY') else None
-        self.template_path = Config.SLIDE_TEMPLATE_PATH if hasattr(Config, 'SLIDE_TEMPLATE_PATH') else None
+        
+        # Resolve template path: prefer env, then common defaults
+        self.template_path = getattr(Config, 'SLIDE_TEMPLATE_PATH', None) if hasattr(Config, 'SLIDE_TEMPLATE_PATH') else None
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        if os.path.basename(script_dir) == 'src':
+            project_root = os.path.dirname(script_dir)
+        else:
+            project_root = script_dir
+        
+        if not self.template_path or not os.path.exists(self.template_path):
+            default_template_paths = [
+                os.path.join(project_root, 'SLAUSON&CO.Template.pdf'),
+                os.path.join(project_root, 'SLAUSON&CO.template'),
+                os.path.join(project_root, 'SLAUSON&CO.Template'),
+                os.path.join(project_root, 'templates', 'SLAUSON&CO.Template.pdf'),
+                os.path.join(script_dir, 'templates', 'SLAUSON&CO.Template.pdf'),
+                'templates/SLAUSON&CO.Template.pdf',
+                os.path.join(script_dir, 'SLAUSON&CO.Template.pdf'),
+                os.path.join(script_dir, 'SLAUSON&CO.template'),
+                'SLAUSON&CO.Template.pdf',
+                'SLAUSON&CO.template',
+            ]
+            for path in default_template_paths:
+                if path and os.path.exists(path):
+                    self.template_path = path
+                    print(f"✓ Gemini found template at: {self.template_path}")
+                    break
     
     def _inpaint_region(self, img: Image.Image, mask: Image.Image, radius: int = 3) -> Image.Image:
         """
