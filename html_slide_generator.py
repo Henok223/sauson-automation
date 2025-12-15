@@ -89,6 +89,34 @@ class HTMLSlideGenerator:
                     self.map_template_path = path
                     print(f"✓ Found map template at: {self.map_template_path}")
                     break
+
+    def _load_font(self, size: int, bold: bool = False):
+        """
+        Load a font with robust fallbacks that work on Render.
+        Tries common system fonts, then DejaVu (available in most containers), then default.
+        """
+        font_candidates = []
+        # Preferred bundled fonts on Linux containers
+        if bold:
+            font_candidates.append("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+        font_candidates.append("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf")
+        # macOS fonts (may exist locally, ignored on Render)
+        if bold:
+            font_candidates.append("/System/Library/Fonts/Helvetica-Bold.ttf")
+            font_candidates.append("/System/Library/Fonts/Arial Bold.ttf")
+        font_candidates.append("/System/Library/Fonts/Helvetica.ttc")
+        font_candidates.append("/System/Library/Fonts/Arial.ttf")
+        # Generic names (if fontconfig resolves them)
+        font_candidates.append("Arial Bold.ttf" if bold else "Arial.ttf")
+        font_candidates.append("Helvetica-Bold.ttf" if bold else "Helvetica.ttf")
+
+        for path in font_candidates:
+            try:
+                return ImageFont.truetype(path, size)
+            except Exception:
+                continue
+        # Final fallback
+        return ImageFont.load_default()
     
     def _pdf_to_image(self, pdf_path: str) -> Image.Image:
         """Convert first page of PDF to PIL Image."""
@@ -272,33 +300,11 @@ class HTMLSlideGenerator:
         draw = ImageDraw.Draw(slide)
         width, height = slide.size
         
-        # Load fonts
-        try:
-            # Try to load bold fonts for company name (matching the image style - thick, bold)
-            try:
-                name_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 140)  # Large, bold
-            except:
-                try:
-                    name_font = ImageFont.truetype("/System/Library/Fonts/Helvetica-Bold.ttf", 140)
-                except:
-                    name_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 140)
-            body_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 28)
-            small_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 20)
-            sidebar_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 28)
-        except:
-            try:
-                try:
-                    name_font = ImageFont.truetype("/System/Library/Fonts/Arial Bold.ttf", 140)
-                except:
-                    name_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 140)
-                body_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 28)
-                small_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 20)
-                sidebar_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 28)
-            except:
-                name_font = ImageFont.load_default()
-                body_font = ImageFont.load_default()
-                small_font = ImageFont.load_default()
-                sidebar_font = ImageFont.load_default()
+        # Load fonts (robust fallbacks for Render)
+        name_font = self._load_font(140, bold=True)
+        body_font = self._load_font(28)
+        small_font = self._load_font(20)
+        sidebar_font = self._load_font(28)
         
         # Extract company data
         company_name = company_data.get('name', '').upper()
@@ -341,17 +347,7 @@ class HTMLSlideGenerator:
         name_color = (255, 140, 0)  # More vibrant orange, similar to slide orange
         
         # Use very thick, bold font (matching the image style - extra thick and bold)
-        try:
-            # Try to load the thickest possible font - use larger size for thickness
-            name_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 180)  # Very large for thickness
-        except:
-            try:
-                name_font = ImageFont.truetype("/System/Library/Fonts/Arial Bold.ttf", 180)
-            except:
-                try:
-                    name_font = ImageFont.truetype("/System/Library/Fonts/Helvetica-Bold.ttf", 180)
-                except:
-                    name_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 180)
+        name_font = self._load_font(180, bold=True)
         
         # Draw company name with stroke (outline) to make it appear thicker
         # First draw the stroke (outline) in the same color but slightly darker
@@ -505,19 +501,7 @@ class HTMLSlideGenerator:
             black = (0, 0, 0)  # Black text on yellow background
             
             # Use larger, bold font for location text
-            try:
-                location_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 30)  # Bigger font (was 24)
-            except:
-                try:
-                    location_font = ImageFont.truetype("/System/Library/Fonts/Helvetica-Bold.ttf", 30)
-                except:
-                    try:
-                        location_font = ImageFont.truetype("/System/Library/Fonts/Arial Bold.ttf", 30)
-                    except:
-                        try:
-                            location_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 30)
-                        except:
-                            location_font = small_font  # Fallback to small_font
+            location_font = self._load_font(30, bold=True)
             
             # Get text dimensions with larger font
             label_bbox = draw.textbbox((0, 0), location, font=location_font)
@@ -604,13 +588,7 @@ class HTMLSlideGenerator:
         bg_color = self._get_text_color_from_template(template, bg_text_x, bg_text_y, bg_text_width, 200)
         
         # Use slightly bigger font for background text
-        try:
-            bg_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 32)  # Bigger (was 28)
-        except:
-            try:
-                bg_font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", 32)
-            except:
-                bg_font = body_font  # Fallback to body_font
+        bg_font = self._load_font(32)
         
         # Draw text directly without erasing background (transparent)
         for i, line in enumerate(lines[:10]):
@@ -678,13 +656,7 @@ class HTMLSlideGenerator:
             stage_text = investment_stage.upper()
         
         # Use bigger, bolder font for sidebar text (similar size to company name but rotated)
-        try:
-            sidebar_bold_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 40)  # Bigger and bolder
-        except:
-            try:
-                sidebar_bold_font = ImageFont.truetype("/System/Library/Fonts/Arial Bold.ttf", 40)
-            except:
-                sidebar_bold_font = ImageFont.truetype("/System/Library/Fonts/Helvetica.ttc", 36)
+        sidebar_bold_font = self._load_font(40, bold=True)
         
         # Don't erase background - keep it transparent
         # Use black color
