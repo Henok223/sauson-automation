@@ -328,21 +328,69 @@ class HTMLSlideGenerator:
             pin_x = map_area_x + int(city_coords[0] * map_width)
             pin_y = map_area_y + int(city_coords[1] * map_height)
             
-            # Draw the pin (bigger, more noticeable dot)
-            pin_radius = 16  # Increased from 10 to make it bigger and more noticeable
+            # Draw the pin (yellow location pin icon - teardrop shape with circular hole)
             yellow = (255, 215, 0)
             black = (0, 0, 0)
+            dark_yellow = (200, 170, 0)  # For shadow/depth
+            
+            # Pin dimensions
+            pin_width = 32  # Width of the teardrop
+            pin_height = 44  # Height of the teardrop (including point)
+            pin_point_length = 10  # Length of the point at the bottom
+            hole_radius = 5  # Radius of the circular hole
             
             # Erase old pin area
-            pin_bg = self._get_dominant_color(template, (pin_x - 30, pin_y - 30, 60, 60))
-            draw.ellipse([(pin_x - pin_radius - 5, pin_y - pin_radius - 5), (pin_x + pin_radius + 5, pin_y + pin_radius + 5)], fill=pin_bg)
+            pin_bg = self._get_dominant_color(template, (pin_x - 40, pin_y - 40, 80, 80))
+            draw.ellipse([(pin_x - 30, pin_y - 30), (pin_x + 30, pin_y + 30)], fill=pin_bg)
             
-            # Draw pin at new location (bigger dot with thicker outline)
-            draw.ellipse(
-                [(pin_x - pin_radius, pin_y - pin_radius), 
-                 (pin_x + pin_radius, pin_y + pin_radius)], 
-                fill=yellow, outline=black, width=4  # Thicker outline for more visibility
+            # Create a temporary image for the pin to draw the teardrop shape
+            pin_img = Image.new('RGBA', (pin_width + 20, pin_height + pin_point_length + 20), (0, 0, 0, 0))
+            pin_draw = ImageDraw.Draw(pin_img)
+            
+            # Calculate center position in the pin image
+            center_x = (pin_width + 20) // 2
+            center_y = (pin_height + pin_point_length + 20) // 2
+            
+            # Draw shadow first (slightly offset and darker) for depth
+            shadow_offset = 2
+            shadow_points = [
+                (center_x + shadow_offset, center_y - pin_height // 2 + shadow_offset),  # Top center
+                (center_x + shadow_offset - pin_width // 3, center_y - pin_height // 2 + shadow_offset - pin_height // 3),  # Left curve
+                (center_x + shadow_offset + pin_width // 3, center_y - pin_height // 2 + shadow_offset - pin_height // 3),  # Right curve
+                (center_x + shadow_offset, center_y + pin_point_length + shadow_offset),  # Point
+            ]
+            pin_draw.polygon(shadow_points, fill=(50, 50, 50, 150))  # Semi-transparent dark shadow
+            
+            # Draw main teardrop shape (yellow)
+            teardrop_points = [
+                (center_x, center_y - pin_height // 2),  # Top center
+                (center_x - pin_width // 3, center_y - pin_height // 2 - pin_height // 3),  # Left curve
+                (center_x + pin_width // 3, center_y - pin_height // 2 - pin_height // 3),  # Right curve
+                (center_x, center_y + pin_point_length),  # Point
+            ]
+            pin_draw.polygon(teardrop_points, fill=yellow, outline=black, width=2)
+            
+            # Draw circular hole in the center (dark circle for depth)
+            hole_center_x = center_x
+            hole_center_y = center_y - pin_height // 2 - pin_height // 6  # Position hole in upper part
+            pin_draw.ellipse(
+                [(hole_center_x - hole_radius, hole_center_y - hole_radius),
+                 (hole_center_x + hole_radius, hole_center_y + hole_radius)],
+                fill=black
             )
+            
+            # Add inner highlight ring for 3D effect
+            pin_draw.ellipse(
+                [(hole_center_x - hole_radius + 1, hole_center_y - hole_radius + 1),
+                 (hole_center_x + hole_radius - 1, hole_center_y + hole_radius - 1)],
+                fill=(80, 80, 80)
+            )
+            
+            # Paste the pin onto the main slide (centered at pin_x, pin_y)
+            paste_pin_x = pin_x - (pin_width + 20) // 2
+            paste_pin_y = pin_y - (pin_height + pin_point_length + 20) // 2
+            slide.paste(pin_img, (paste_pin_x, paste_pin_y), pin_img)
+            draw = ImageDraw.Draw(slide)
             
             # Place the city name label with yellow block (similar to other yellow blocks)
             yellow = (255, 215, 0)  # Yellow for the block
