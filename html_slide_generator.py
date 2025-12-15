@@ -677,7 +677,13 @@ class HTMLSlideGenerator:
             stage_text = investment_stage.upper()
         
         # Use bigger, bolder font for sidebar text (similar size to company name but rotated)
-        sidebar_bold_font = self._load_font(40, bold=True)
+        # Adjust size down for long labels like "PRE-SEED Q4 2024" to avoid cutoff
+        stage_font_size = 40
+        if len(stage_text) > 14:
+            stage_font_size = 34
+        if len(stage_text) > 18:
+            stage_font_size = 30
+        sidebar_bold_font = self._load_font(stage_font_size, bold=True)
         
         # Don't erase background - keep it transparent
         # Use black color
