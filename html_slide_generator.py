@@ -27,18 +27,32 @@ class HTMLSlideGenerator:
         
         # Get the directory where this script is located (works on Render too)
         script_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(script_dir) if os.path.basename(script_dir) != 'slauson-automation' else script_dir
+        # On Render: script_dir = /opt/render/project/src, project_root = /opt/render/project
+        # Locally: script_dir = /path/to/slauson-automation, project_root = /path/to/slauson-automation
+        project_root = os.path.dirname(script_dir) if os.path.basename(script_dir) in ['src', 'slauson-automation'] else script_dir
         
         # Slide template path - check config first, then try default locations
         self.template_path = getattr(Config, 'SLIDE_TEMPLATE_PATH', None) if hasattr(Config, 'SLIDE_TEMPLATE_PATH') else None
         if not self.template_path or not os.path.exists(self.template_path):
-            # Try default locations (relative to script, then project root, then current working directory)
+            # Try default locations (project root first, then templates folder, then script dir)
             default_template_paths = [
-                os.path.join(script_dir, 'templates', 'SLAUSON&CO.Template.pdf'),
+                # Project root (where user added the file)
+                os.path.join(project_root, 'SLAUSON&CO.Template.pdf'),
+                os.path.join(project_root, 'SLAUSON&CO.template'),
+                os.path.join(project_root, 'SLAUSON&CO.Template'),
+                # Templates folder
                 os.path.join(project_root, 'templates', 'SLAUSON&CO.Template.pdf'),
+                os.path.join(script_dir, 'templates', 'SLAUSON&CO.Template.pdf'),
                 'templates/SLAUSON&CO.Template.pdf',
-                os.path.join(script_dir, 'templates', 'template.pdf'),
+                # Script directory
+                os.path.join(script_dir, 'SLAUSON&CO.Template.pdf'),
+                os.path.join(script_dir, 'SLAUSON&CO.template'),
+                # Current working directory
+                'SLAUSON&CO.Template.pdf',
+                'SLAUSON&CO.template',
+                # Generic template names
                 os.path.join(project_root, 'templates', 'template.pdf'),
+                os.path.join(script_dir, 'templates', 'template.pdf'),
                 'templates/template.pdf',
                 'templates/template.png',
                 'templates/template.jpg',
@@ -190,15 +204,27 @@ class HTMLSlideGenerator:
         if not self.template_path or not os.path.exists(self.template_path):
             # Get the directory where this script is located
             script_dir = os.path.dirname(os.path.abspath(__file__))
-            project_root = os.path.dirname(script_dir) if os.path.basename(script_dir) != 'slauson-automation' else script_dir
+            project_root = os.path.dirname(script_dir) if os.path.basename(script_dir) in ['src', 'slauson-automation'] else script_dir
             
-            # Try to find template in common locations
+            # Try to find template in common locations (project root first)
             possible_paths = [
-                os.path.join(script_dir, 'templates', 'SLAUSON&CO.Template.pdf'),
+                # Project root (where user added the file)
+                os.path.join(project_root, 'SLAUSON&CO.Template.pdf'),
+                os.path.join(project_root, 'SLAUSON&CO.template'),
+                os.path.join(project_root, 'SLAUSON&CO.Template'),
+                # Templates folder
                 os.path.join(project_root, 'templates', 'SLAUSON&CO.Template.pdf'),
+                os.path.join(script_dir, 'templates', 'SLAUSON&CO.Template.pdf'),
                 'templates/SLAUSON&CO.Template.pdf',
-                os.path.join(script_dir, 'templates', 'template.pdf'),
+                # Script directory
+                os.path.join(script_dir, 'SLAUSON&CO.Template.pdf'),
+                os.path.join(script_dir, 'SLAUSON&CO.template'),
+                # Current working directory
+                'SLAUSON&CO.Template.pdf',
+                'SLAUSON&CO.template',
+                # Generic template names
                 os.path.join(project_root, 'templates', 'template.pdf'),
+                os.path.join(script_dir, 'templates', 'template.pdf'),
                 'templates/template.pdf',
                 'templates/template.png',
                 'templates/template.jpg',
@@ -213,8 +239,9 @@ class HTMLSlideGenerator:
             if not found_path:
                 raise ValueError(
                     f"Template not found. Tried: {self.template_path}\n"
-                    f"Please set SLIDE_TEMPLATE_PATH in .env or place template at: templates/SLAUSON&CO.Template.pdf\n"
-                    f"Script dir: {script_dir}, Project root: {project_root}"
+                    f"Please set SLIDE_TEMPLATE_PATH in .env or place template at project root: SLAUSON&CO.Template.pdf\n"
+                    f"Script dir: {script_dir}, Project root: {project_root}\n"
+                    f"Checked paths: {possible_paths[:5]}..."
                 )
             self.template_path = found_path
         
