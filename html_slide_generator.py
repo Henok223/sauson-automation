@@ -627,6 +627,18 @@ class HTMLSlideGenerator:
                 print(f"Warning: Background removal failed, using original: {e}")
                 # Fallback: use original image
                 headshot_img = Image.open(headshot_path).convert('RGBA')
+
+            # Convert person to greyscale while preserving transparency
+            try:
+                if headshot_img.mode == 'RGBA':
+                    r, g, b, a = headshot_img.split()
+                    gray = headshot_img.convert('L')
+                    headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
+                else:
+                    gray = headshot_img.convert('L')
+                    headshot_img = gray.convert('RGBA')
+            except Exception as e:
+                print(f"Warning: Failed to convert headshot to greyscale: {e}")
             
             # Position headshots below the map, moved to the left
             # Map area: right side, upper-middle
