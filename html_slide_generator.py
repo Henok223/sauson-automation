@@ -431,8 +431,10 @@ class HTMLSlideGenerator:
             city_coords = self._get_city_coordinates(location)
             
             # Calculate pixel position
+            # Adjust Y coordinate to move pin higher (reduce Y value by 0.1 to raise it)
+            adjusted_y = max(0.0, city_coords[1] - 0.1)  # Move pin up by 10% of map height
             pin_x = map_area_x + int(city_coords[0] * map_width)
-            pin_y = map_area_y + int(city_coords[1] * map_height)
+            pin_y = map_area_y + int(adjusted_y * map_height)
             
             # Draw the pin (yellow location pin icon - teardrop shape with circular hole)
             yellow = (255, 215, 0)
@@ -532,9 +534,9 @@ class HTMLSlideGenerator:
             box_width = text_width + box_padding_x * 2
             box_height = text_height + box_padding_y * 2
             
-            # Position box with more space from pin; raise slightly to avoid being too low
+            # Position box with more space from pin; raise significantly to avoid being too low
             box_x = pin_x + 40  # More space from pin (was 15, now 40)
-            box_y = pin_y - 10  # Raised (was +20)
+            box_y = pin_y - 50  # Raised significantly (was -10, now -50 to move label higher)
             
             # Make sure box stays within map bounds
             if box_x + box_width > map_area_x + map_width:
@@ -631,14 +633,23 @@ class HTMLSlideGenerator:
             # Convert person to greyscale while preserving transparency
             try:
                 if headshot_img.mode == 'RGBA':
+                    # Split channels to preserve alpha
+                    r, g, b, a = headshot_img.split()
+                    # Convert RGB to greyscale, keep alpha channel
+                    gray = headshot_img.convert('L')
+                    # Merge greyscale with original alpha channel to preserve transparency
+                    headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
+                else:
+                    # If not RGBA, convert to RGBA first
+                    headshot_img = headshot_img.convert('RGBA')
                     r, g, b, a = headshot_img.split()
                     gray = headshot_img.convert('L')
                     headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
-                else:
-                    gray = headshot_img.convert('L')
-                    headshot_img = gray.convert('RGBA')
             except Exception as e:
                 print(f"Warning: Failed to convert headshot to greyscale: {e}")
+                # Ensure it's still RGBA even if conversion fails
+                if headshot_img.mode != 'RGBA':
+                    headshot_img = headshot_img.convert('RGBA')
             
             # Position headshots below the map, moved to the left
             # Map area: right side, upper-middle
@@ -657,16 +668,20 @@ class HTMLSlideGenerator:
             # Don't erase background - keep it transparent (no black box)
             # Just paste the headshot directly
             
-            # Resize headshot to be bigger
+            # Resize headshot to be bigger (preserve alpha channel)
             headshot_img.thumbnail((headshot_area_width, headshot_area_height), Image.Resampling.LANCZOS)
+            
+            # Ensure headshot is RGBA with transparency
+            if headshot_img.mode != 'RGBA':
+                headshot_img = headshot_img.convert('RGBA')
             
             # Center headshot in the area
             headshot_w, headshot_h = headshot_img.size
             paste_x = headshot_area_x + (headshot_area_width - headshot_w) // 2
             paste_y = headshot_area_y + (headshot_area_height - headshot_h) // 2
             
-            # Paste with transparency (no background rectangle)
-            slide.paste(headshot_img, (paste_x, paste_y), headshot_img)
+            # Paste with transparency using alpha channel as mask
+            slide.paste(headshot_img, (paste_x, paste_y), headshot_img.split()[3] if headshot_img.mode == 'RGBA' else headshot_img)
             draw = ImageDraw.Draw(slide)
         except Exception as e:
             print(f"Warning: Could not load headshot: {e}")
