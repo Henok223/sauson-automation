@@ -332,13 +332,16 @@ class CanvaIntegration:
         for token_url in token_endpoints:
             try:
                 print(f"   Trying refresh endpoint: {token_url}")
-                # For v1/oauth2/token endpoint, try JSON format
-                if "v1/oauth2/token" in token_url:
-                    try:
-                        response = requests.post(token_url, json=data, headers={"Content-Type": "application/json"})
-                    except:
-                        response = requests.post(token_url, data=data)
+                # REST API endpoint expects JSON, others use form-urlencoded
+                if "rest/v1" in token_url:
+                    # REST API endpoint - use JSON
+                    response = requests.post(
+                        token_url, 
+                        json=data, 
+                        headers={"Content-Type": "application/json"}
+                    )
                 else:
+                    # Other endpoints - use form-urlencoded
                     response = requests.post(token_url, data=data)
                 
                 if response.status_code == 200:
@@ -409,14 +412,16 @@ class CanvaIntegration:
             # Get new token using client credentials flow
             try:
                 print("   Getting access token using client credentials flow...")
+                # REST API endpoint expects JSON payload
                 response = requests.post(
                     "https://api.canva.com/rest/v1/oauth/token",
-                    data={
+                    json={
                         "grant_type": "client_credentials",
                         "client_id": self.client_id,
                         "client_secret": self.client_secret,
                         "scope": "design:read design:write asset:read asset:write"
-                    }
+                    },
+                    headers={"Content-Type": "application/json"}
                 )
                 
                 if response.status_code == 200:
