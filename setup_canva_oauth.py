@@ -166,15 +166,15 @@ def exchange_code_for_token(client_id: str, client_secret: str, code: str, code_
     for token_url in token_endpoints:
         print(f"   Trying endpoint: {token_url}")
         
-        # Try JSON first (Canva REST v1 expects JSON; form-encoded may be rejected)
+        # REST API endpoint requires form-urlencoded for token exchange (not JSON)
+        # Only use form-urlencoded for OAuth token exchange
         try:
             response = requests.post(
                 token_url,
-                json=data,
-                headers={"Content-Type": "application/json"}
+                data=data  # form-urlencoded (required for OAuth token exchange)
             )
             if response.status_code == 200:
-                print(f"   ✓ Token exchange successful (JSON)!")
+                print(f"   ✓ Token exchange successful!")
                 return response.json()
             elif response.status_code == 404:
                 print(f"   Endpoint not found (404), trying next...")
@@ -182,33 +182,11 @@ def exchange_code_for_token(client_id: str, client_secret: str, code: str, code_
                 continue
             else:
                 error_text = response.text[:300]
-                print(f"   JSON attempt failed with status {response.status_code}: {error_text}")
-                last_error = f"{response.status_code}: {error_text}"
-                # If Content-Type error or other, try form-encoded next
-        except Exception as e:
-            print(f"   Error (JSON attempt): {e}")
-            last_error = str(e)
-        
-        # Fallback: try form-urlencoded (some endpoints might still accept it)
-        try:
-            response = requests.post(
-                token_url,
-                data=data  # let requests set form content-type
-            )
-            if response.status_code == 200:
-                print(f"   ✓ Token exchange successful (form)!")
-                return response.json()
-            elif response.status_code == 404:
-                print(f"   Endpoint not found (404), trying next...")
-                last_error = f"404: {response.text[:200]}"
-                continue
-            else:
-                error_text = response.text[:300]
-                print(f"   Form attempt failed with status {response.status_code}: {error_text}")
+                print(f"   Token exchange failed with status {response.status_code}: {error_text}")
                 last_error = f"{response.status_code}: {error_text}"
                 continue
         except Exception as e:
-            print(f"   Error (form attempt): {e}")
+            print(f"   Error: {e}")
             last_error = str(e)
             continue
     
