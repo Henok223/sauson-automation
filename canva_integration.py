@@ -270,10 +270,12 @@ class CanvaIntegration:
             # Log response details if available
             if hasattr(e, 'response') and hasattr(e.response, 'text'):
                 print(f"   Response details: {e.response.text[:500]}")
-            raise
+            # Don't raise - continue to fallback
+            print(f"   ⚠️  Design Import API failed, trying legacy asset upload endpoints...")
         
         # Fallback: Try old endpoints if import API doesn't work
-        print(f"   ⚠️  Design Import API failed, trying legacy asset upload endpoints...")
+        if response.status_code not in [200, 201, 202]:
+            print(f"   ⚠️  Design Import API returned {response.status_code}, trying legacy endpoints...")
         upload_endpoints = [
             f"{self.base_url}/assets/upload",
             f"{self.base_url}/assets",
