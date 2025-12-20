@@ -240,45 +240,81 @@ class CanvaIntegration:
                     json=payload,
                     headers={"Content-Type": "application/json"},
                 )
+                print(f"   JSON upload attempt - Status: {response.status_code}")
                 if response.status_code in [200, 201]:
                     try:
                         result = response.json()
-                        upload_id = result.get("id") or result.get("upload_id") or result.get("uploadId")
+                        print(f"   Response keys: {list(result.keys())}")
+                        upload_id = result.get("id") or result.get("upload_id") or result.get("uploadId") or result.get("asset_id")
                         if upload_id:
                             print(f"   ✓ Uploaded PDF asset to Canva: {upload_id}")
                             return upload_id
                     except Exception as e:
                         print(f"   Failed to parse PDF upload response: {e}")
-                        print(f"   Response: {response.text[:200]}")
+                        print(f"   Response: {response.text[:500]}")
 
                 # If JSON fails, try multipart/form-data
                 if response.status_code not in [200, 201]:
+                    print(f"   JSON upload failed ({response.status_code}), trying multipart...")
+                    print(f"   Error response: {response.text[:500]}")
                     files = {"file": (filename, pdf_bytes, "application/pdf")}
                     response = self._make_authenticated_request("post", endpoint, files=files)
+                    print(f"   Multipart upload attempt - Status: {response.status_code}")
                     if response.status_code in [200, 201]:
                         try:
                             result = response.json()
-                            upload_id = result.get("id") or result.get("upload_id") or result.get("uploadId")
+                            print(f"   Response keys: {list(result.keys())}")
+                            upload_id = result.get("id") or result.get("upload_id") or result.get("uploadId") or result.get("asset_id")
                             if upload_id:
                                 print(f"   ✓ Uploaded PDF asset to Canva: {upload_id}")
                                 return upload_id
                         except Exception as e:
                             print(f"   Failed to parse multipart PDF upload response: {e}")
-                            print(f"   Response: {response.text[:200]}")
+                            print(f"   Response: {response.text[:500]}")
+                    else:
+                        print(f"   Multipart upload failed ({response.status_code}): {response.text[:500]}")
 
             except Exception as e:
                 error_msg = str(e)
                 print(f"   PDF upload failed with {endpoint}: {error_msg}")
                 # Log response details if available
                 if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                    print(f"   Response details: {e.response.text[:300]}")
+                    print(f"   Response details: {e.response.text[:500]}")
+                elif hasattr(e, 'args') and len(e.args) > 0:
+                    error_detail = str(e.args[0])
+                    if 'response' in error_detail.lower() or 'status' in error_detail.lower():
+                        print(f"   Error detail: {error_detail[:500]}")
                 if "401" in error_msg or "403" in error_msg or "authentication" in error_msg.lower():
                     raise
                 continue
 
-        # Log that all endpoints failed
-        print(f"   ❌ All PDF upload endpoints failed. This is optional - slide was created successfully.")
-        raise Exception("Failed to upload PDF asset to Canva from all endpoints.")
+        # If all endpoints failed, try converting PDF to image and uploading as image
+        print(f"   ⚠️  All PDF upload endpoints failed. Trying to convert PDF to image and upload...")
+        try:
+            from pdf2image import convert_from_bytes
+            from PIL import Image
+            import io
+            
+            # Convert first page of PDF to image
+            images = convert_from_bytes(pdf_bytes, dpi=300, first_page=1, last_page=1)
+            if images:
+                img = images[0]
+                # Convert to PNG bytes
+                img_bytes = io.BytesIO()
+                img.save(img_bytes, format='PNG')
+                img_bytes.seek(0)
+                img_data = img_bytes.read()
+                
+                # Upload as image instead
+                print(f"   Converting PDF to image and uploading as PNG...")
+                image_upload_id = self._upload_image(img_data, "slide_image")
+                print(f"   ✓ Uploaded PDF (as image) to Canva: {image_upload_id}")
+                return image_upload_id
+        except Exception as e:
+            print(f"   PDF to image conversion failed: {e}")
+        
+        # If everything failed
+        raise Exception(f"Failed to upload PDF asset to Canva from all endpoints. Last attempt: PDF to image conversion also failed.")
     
     def _load_tokens(self):
         """Load stored OAuth tokens from file."""
