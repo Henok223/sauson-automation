@@ -247,18 +247,29 @@ class CanvaIntegration:
             if response.status_code in [200, 201, 202]:
                 try:
                     result = response.json()
-                    # The response should contain an import_id or design_id
-                    import_id = result.get("import_id") or result.get("id") or result.get("design_id")
+                    print(f"   Response keys: {list(result.keys())}")
+                    print(f"   Full response: {result}")
+                    
+                    # Handle Canva Design Import API response structure
+                    # Response format: {'job': {'id': '...', 'status': 'in_progress'}}
+                    job = result.get("job", {})
+                    if job and isinstance(job, dict):
+                        job_id = job.get("id")
+                        job_status = job.get("status", "unknown")
+                        if job_id:
+                            print(f"   ✓ PDF import job created in Canva (job_id: {job_id}, status: {job_status})")
+                            return job_id
+                    
+                    # Fallback: try direct fields
+                    import_id = result.get("import_id") or result.get("id") or result.get("design_id") or result.get("job_id")
                     if import_id:
                         print(f"   ✓ PDF imported to Canva (import_id: {import_id})")
                         return import_id
-                    else:
-                        print(f"   Response keys: {list(result.keys())}")
-                        print(f"   Full response: {result}")
-                        # If it's async, might need to poll for status
-                        if "job_id" in result or "status" in result:
-                            print(f"   Import job created, status: {result.get('status', 'unknown')}")
-                            return result.get("job_id") or result.get("id")
+                    
+                    # If it's async with status field
+                    if "status" in result:
+                        print(f"   Import job created, status: {result.get('status', 'unknown')}")
+                        return result.get("id") or result.get("job_id")
                 except Exception as e:
                     print(f"   Failed to parse import response: {e}")
                     print(f"   Response: {response.text[:500]}")
