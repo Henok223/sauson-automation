@@ -389,6 +389,84 @@ class CanvaIntegration:
         # If everything failed
         raise Exception(f"Failed to upload PDF asset to Canva from all endpoints. Last attempt: PDF to image conversion also failed.")
     
+    def check_import_job_status(self, job_id: str) -> dict:
+        """
+        Check the status of a Canva Design Import job.
+        
+        Args:
+            job_id: The job ID returned from upload_pdf_asset()
+            
+        Returns:
+            Dictionary with job status and details:
+            {
+                'status': 'in_progress' | 'success' | 'failed',
+                'job_id': '...',
+                'design_id': '...' (if status is 'success'),
+                'error': '...' (if status is 'failed')
+            }
+        """
+        status_endpoint = f"{self.base_url}/imports/{job_id}"
+        
+        try:
+            response = self._make_authenticated_request("get", status_endpoint)
+            
+            if response.status_code == 200:
+                result = response.json()
+                job = result.get("job", {})
+                
+                status_info = {
+                    'status': job.get("status", "unknown"),
+                    'job_id': job_id,
+                }
+                
+                # If successful, include design_id
+                if status_info['status'] == 'success':
+                    design_id = job.get("design_id") or job.get("id")
+                    if design_id:
+                        status_info['design_id'] = design_id
+                        status_info['design_url'] = job.get("url") or job.get("edit_url")
+                
+                # If failed, include error
+                if status_info['status'] == 'failed':
+                    status_info['error'] = job.get("error") or job.get("error_message", "Unknown error")
+                
+                return status_info
+            else:
+                raise Exception(f"Failed to check job status ({response.status_code}): {response.text[:500]}")
+        except Exception as e:
+            raise Exception(f"Error checking import job status: {e}")
+    
+    def wait_for_import_completion(self, job_id: str, max_wait_seconds: int = 60, poll_interval: int = 2) -> dict:
+        """
+        Poll the import job status until it completes (success or failed).
+        
+        Args:
+            job_id: The job ID returned from upload_pdf_asset()
+            max_wait_seconds: Maximum time to wait (default: 60 seconds)
+            poll_interval: Seconds between status checks (default: 2 seconds)
+            
+        Returns:
+            Dictionary with final job status (see check_import_job_status)
+        """
+        import time
+        
+        start_time = time.time()
+        
+        while time.time() - start_time < max_wait_seconds:
+            status_info = self.check_import_job_status(job_id)
+            status = status_info.get('status')
+            
+            print(f"   Import job status: {status}")
+            
+            if status in ['success', 'failed']:
+                return status_info
+            
+            # Wait before next poll
+            time.sleep(poll_interval)
+        
+        # Timeout
+        raise Exception(f"Import job {job_id} did not complete within {max_wait_seconds} seconds")
+    
     def _load_tokens(self):
         """Load stored OAuth tokens from file."""
         if os.path.exists(self.token_file):
