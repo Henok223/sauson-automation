@@ -214,13 +214,14 @@ class CanvaIntegration:
         Returns:
             Design/import ID from Canva
         """
-        print(f"   Uploading PDF to Canva via Design Import API ({filename})...")
+        print(f"   🚀 NEW CODE: Uploading PDF to Canva via Design Import API ({filename})...")
         
         import base64
         import json
         
         # Canva Design Import API endpoint
         import_endpoint = f"{self.base_url}/imports"
+        print(f"   📍 Using endpoint: {import_endpoint}")
         
         # Prepare metadata - title should be base64 encoded
         title = filename.replace('.pdf', '').replace('_', ' ')
