@@ -269,10 +269,15 @@ class CanvaIntegration:
             except Exception as e:
                 error_msg = str(e)
                 print(f"   PDF upload failed with {endpoint}: {error_msg}")
+                # Log response details if available
+                if hasattr(e, 'response') and hasattr(e.response, 'text'):
+                    print(f"   Response details: {e.response.text[:300]}")
                 if "401" in error_msg or "403" in error_msg or "authentication" in error_msg.lower():
                     raise
                 continue
 
+        # Log that all endpoints failed
+        print(f"   ❌ All PDF upload endpoints failed. This is optional - slide was created successfully.")
         raise Exception("Failed to upload PDF asset to Canva from all endpoints.")
     
     def _load_tokens(self):
