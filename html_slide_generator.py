@@ -376,6 +376,23 @@ class HTMLSlideGenerator:
             print(f"   Warning: Geocoding failed for '{city}': {e}")
             return None
     
+    def _fallback_latlon(self, city: str):
+        """Fallback lat/lon for common cities when geopy isn't available."""
+        key = city.lower().split(',')[0].strip()
+        
+        # Add/adjust as needed
+        LATLON = {
+            "los angeles": (34.0522, -118.2437),
+            "new york": (40.7128, -74.0060),
+            "new york city": (40.7128, -74.0060),
+            "miami": (25.7617, -80.1918),
+            "san francisco": (37.7749, -122.4194),
+            "seattle": (47.6062, -122.3321),
+            "boston": (42.3601, -71.0589),
+            "chicago": (41.8781, -87.6298),
+        }
+        return LATLON.get(key)
+    
     def _latlon_to_map_xy(self, lat: float, lon: float, map_area_x: int, map_area_y: int, map_w: int, map_h: int):
         """
         Map lat/lon into the US map bbox, but shrink to an inner area to
@@ -652,14 +669,20 @@ class HTMLSlideGenerator:
             # Geocode city to get real lat/lon
             latlon = self._geocode_city(location)
             
+            # If geocoding fails, try lat/lon fallback (uses same projection math)
+            if not latlon:
+                latlon = self._fallback_latlon(location)
+                if latlon:
+                    print(f"   Using lat/lon fallback for '{location}': {latlon}")
+            
             if latlon:
                 lat, lon = latlon
                 pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_area_x, map_area_y, map_width, map_height)
                 # Small aesthetic offset only (in pixels, not normalized)
                 pin_y -= 6  # Small visual tweak
             else:
-                # Fallback: use old coarse dictionary
-                print(f"   Using fallback coordinates for '{location}'")
+                # Last-resort fallback: use old normalized coordinates dictionary
+                print(f"   Using normalized coordinate fallback for '{location}'")
                 city_coords = self._get_city_coordinates(location)
                 pin_x = map_area_x + int(city_coords[0] * map_width)
                 pin_y = map_area_y + int(city_coords[1] * map_height)
