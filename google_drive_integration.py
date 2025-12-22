@@ -29,55 +29,70 @@ class GoogleDriveIntegration:
         """Authenticate with Google Drive API."""
         creds = None
         
-        # Check if we have token.json (for OAuth flow) - preferred for personal account
+        # Priority 1: Check if we have token.json (for OAuth flow) - preferred for personal account
         if os.path.exists('token.json'):
-            creds = Credentials.from_authorized_user_file('token.json', self.SCOPES)
-            if creds and creds.valid:
-                self.credentials = creds
-                self.service = build('drive', 'v3', credentials=creds)
-                return
-        
-        # If token.json exists but expired, refresh it
-        if creds and creds.expired and creds.refresh_token:
             try:
-                creds.refresh(Request())
-                self.credentials = creds
-                self.service = build('drive', 'v3', credentials=creds)
-                return
+                creds = Credentials.from_authorized_user_file('token.json', self.SCOPES)
+                # If expired, try to refresh
+                if creds and creds.expired and creds.refresh_token:
+                    try:
+                        print("   Refreshing Google Drive OAuth token...")
+                        creds.refresh(Request())
+                        # Save refreshed token
+                        with open('token.json', 'w') as token:
+                            token.write(creds.to_json())
+                        print("   ✓ Google Drive token refreshed")
+                    except Exception as e:
+                        print(f"   Warning: Could not refresh token: {e}")
+                        print(f"   Token may be revoked. Please re-run: python setup_google_oauth.py")
+                        # Don't use expired token, continue to next method
+                        creds = None
+                
+                if creds and creds.valid:
+                    self.credentials = creds
+                    self.service = build('drive', 'v3', credentials=creds)
+                    print("   ✓ Using Google Drive OAuth (token.json)")
+                    return
+                elif creds and not creds.valid:
+                    print("   Warning: Google Drive token.json exists but is invalid")
             except Exception as e:
-                print(f"Warning: Could not refresh token: {e}")
+                print(f"   Warning: Error loading token.json: {e}")
         
-        # Try OAuth credentials from environment variable
+        # Priority 2: Try OAuth credentials from environment variable
         if Config.GOOGLE_DRIVE_CREDENTIALS_JSON:
             try:
                 creds_info = json.loads(Config.GOOGLE_DRIVE_CREDENTIALS_JSON)
                 if creds_info.get('type') != 'service_account':
                     # OAuth credentials
                     creds = Credentials.from_authorized_user_info(creds_info, self.SCOPES)
+                    # Refresh if expired
+                    if creds and creds.expired and creds.refresh_token:
+                        try:
+                            creds.refresh(Request())
+                        except Exception as e:
+                            print(f"   Warning: Could not refresh env token: {e}")
+                            creds = None
+                    
                     if creds and creds.valid:
                         self.credentials = creds
                         self.service = build('drive', 'v3', credentials=creds)
+                        print("   ✓ Using Google Drive OAuth (environment variable)")
                         return
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                print(f"   Warning: Invalid GOOGLE_DRIVE_CREDENTIALS_JSON: {e}")
+            except Exception as e:
+                print(f"   Warning: Error using GOOGLE_DRIVE_CREDENTIALS_JSON: {e}")
         
-        # Fallback to service account if OAuth not available
-        service_account_path = os.getenv('GOOGLE_SERVICE_ACCOUNT_PATH')
-        if service_account_path and os.path.exists(service_account_path):
-            from google.oauth2 import service_account
-            creds = service_account.Credentials.from_service_account_file(
-                service_account_path, scopes=self.SCOPES
-            )
-            self.credentials = creds
-            self.service = build('drive', 'v3', credentials=creds)
-            print("Warning: Using service account. For personal Google Drive, set up OAuth.")
-            return
-        
-        # If no credentials, raise error with instructions
+        # DO NOT fallback to service account - it doesn't have storage quota
+        # Instead, raise error with clear instructions
         raise ValueError(
-            "Google Drive credentials not configured. "
+            "Google Drive OAuth credentials not configured or expired. "
+            "Service accounts don't have storage quota. "
             "For personal Google Drive (hmikaeltewolde@gmail.com), you need to set up OAuth. "
-            "Run the OAuth setup script or set GOOGLE_DRIVE_CREDENTIALS_JSON"
+            "Options:\n"
+            "1. Run: python setup_google_oauth.py (if you have credentials.json)\n"
+            "2. Set GOOGLE_DRIVE_CREDENTIALS_JSON environment variable with OAuth token JSON\n"
+            "3. Ensure token.json exists and is valid"
         )
     
     def upload_pdf(
