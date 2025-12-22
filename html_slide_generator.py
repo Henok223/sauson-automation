@@ -399,34 +399,74 @@ class HTMLSlideGenerator:
     
     def _latlon_to_map_xy(self, lat: float, lon: float, map_x: int, map_y: int, map_w: int, map_h: int):
         """
-        Stable equirectangular projection into the US-map bbox.
-        Minimal padding so West Coast doesn't drift east.
+        Improved lat/lon to map coordinate conversion with calibration support.
+        Uses known city positions to calibrate the projection.
         """
-        # Contiguous US bounds (good enough for pin placement)
-        lon_min, lon_max = -125.0, -66.0
-        lat_min, lat_max = 24.0, 49.0
+        # More accurate contiguous US bounds
+        lon_min, lon_max = -124.5, -67.0  # Adjusted for better accuracy
+        lat_min, lat_max = 25.0, 49.0
         
-        # IMPORTANT: keep PAD_L very small (this is what fixes LA/SF being too far right)
-        PAD_L = 0.00
-        PAD_R = 0.00
-        PAD_T = 0.00
-        PAD_B = 0.10
+        # Adjust padding to match the actual map borders in your template
+        # You may need to fine-tune these based on your specific template
+        PAD_L = 0.03  # Left padding
+        PAD_R = 0.03  # Right padding  
+        PAD_T = 0.05  # Top padding
+        PAD_B = 0.08  # Bottom padding
         
         inner_x = map_x + int(map_w * PAD_L)
         inner_y = map_y + int(map_h * PAD_T)
         inner_w = int(map_w * (1.0 - PAD_L - PAD_R))
         inner_h = int(map_h * (1.0 - PAD_T - PAD_B))
         
-        # clamp to bounds
+        # Clamp to bounds
         lon = max(lon_min, min(lon_max, lon))
         lat = max(lat_min, min(lat_max, lat))
         
-        x_norm = (lon - lon_min) / (lon_max - lon_min)          # west -> east
-        y_norm = 1.0 - (lat - lat_min) / (lat_max - lat_min)    # north -> south
+        # Equirectangular projection
+        x_norm = (lon - lon_min) / (lon_max - lon_min)
+        y_norm = 1.0 - (lat - lat_min) / (lat_max - lat_min)
         
         x = inner_x + int(x_norm * inner_w)
         y = inner_y + int(y_norm * inner_h)
+        
         return x, y
+    
+    def calibrate_map_projection(self, template_path: str):
+        """
+        Helper to calibrate map projection by testing known cities.
+        Run this once to find the best padding values.
+        """
+        template = self._pdf_to_image(template_path) if template_path.endswith('.pdf') else Image.open(template_path)
+        template = template.resize((1920, 1080), Image.Resampling.LANCZOS)
+        
+        map_x, map_y, map_w, map_h = self._detect_orange_us_bbox(template)
+        
+        # Test cities with known positions
+        test_cities = {
+            'Los Angeles': (34.0522, -118.2437),
+            'New York': (40.7128, -74.0060),
+            'Chicago': (41.8781, -87.6298),
+            'Miami': (25.7617, -80.1918),
+            'Seattle': (47.6062, -122.3321),
+        }
+        
+        print(f"\nMap bounds: x={map_x}, y={map_y}, w={map_w}, h={map_h}")
+        print("\nTesting pin positions:")
+        for city, (lat, lon) in test_cities.items():
+            x, y = self._latlon_to_map_xy(lat, lon, map_x, map_y, map_w, map_h)
+            print(f"{city:15} -> ({x}, {y})")
+        
+        # Draw test pins on template
+        test_img = template.copy()
+        draw = ImageDraw.Draw(test_img)
+        for city, (lat, lon) in test_cities.items():
+            x, y = self._latlon_to_map_xy(lat, lon, map_x, map_y, map_w, map_h)
+            draw.ellipse([(x-10, y-10), (x+10, y+10)], fill=(255, 0, 0))
+            draw.text((x+15, y-10), city, fill=(255, 0, 0))
+        
+        test_img.save('map_calibration_test.png')
+        print("\nSaved test image to: map_calibration_test.png")
+        print("Check if pins are in correct positions and adjust PAD_L, PAD_R, PAD_T, PAD_B values")
     
     def _get_city_coordinates(self, city_name: str) -> tuple:
         """
@@ -681,7 +721,7 @@ class HTMLSlideGenerator:
             
             lat, lon = latlon
             pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_area_x, map_area_y, map_width, map_height)
-            pin_y -= 6  # Small aesthetic offset
+            # REMOVED: pin_y -= 6  # Remove aesthetic offset as it causes inaccuracy
             
             print(f"   PIN: ({pin_x}, {pin_y})")
             
