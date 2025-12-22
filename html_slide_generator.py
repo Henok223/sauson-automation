@@ -356,47 +356,36 @@ class HTMLSlideGenerator:
         return LATLON.get(key)
     
     
-    def _latlon_to_map_xy(self, lat: float, lon: float, bbox: tuple):
+    def _latlon_to_map_xy(self, lat: float, lon: float, map_x: int, map_y: int, map_w: int, map_h: int):
         """
-        Robust-ish projection for a stylized contiguous US map:
-        - linear lat/lon -> bbox
-        - small non-linear correction on x so West/East land where your template expects
+        Stable equirectangular projection into the US-map bbox.
+        Minimal padding so West Coast doesn't drift east.
         """
-        map_x, map_y, map_w, map_h = bbox
-        
-        # Contiguous US bounds (tuned to templates like yours)
+        # Contiguous US bounds (good enough for pin placement)
         lon_min, lon_max = -125.0, -66.0
-        lat_min, lat_max = 24.0, 49.5
+        lat_min, lat_max = 24.0, 49.0
         
-        # Clamp
+        # IMPORTANT: keep PAD_L very small (this is what fixes LA/SF being too far right)
+        PAD_L = 0.00
+        PAD_R = 0.02
+        PAD_T = 0.08
+        PAD_B = 0.12
+        
+        inner_x = map_x + int(map_w * PAD_L)
+        inner_y = map_y + int(map_h * PAD_T)
+        inner_w = int(map_w * (1.0 - PAD_L - PAD_R))
+        inner_h = int(map_h * (1.0 - PAD_T - PAD_B))
+        
+        # clamp to bounds
         lon = max(lon_min, min(lon_max, lon))
         lat = max(lat_min, min(lat_max, lat))
         
-        # Normalize
-        x = (lon - lon_min) / (lon_max - lon_min)          # 0..1 west->east
-        y = 1.0 - (lat - lat_min) / (lat_max - lat_min)    # 0..1 north->south
+        x_norm = (lon - lon_min) / (lon_max - lon_min)          # west -> east
+        y_norm = 1.0 - (lat - lat_min) / (lat_max - lat_min)    # north -> south
         
-        # --- Template correction ---
-        # Stylized US maps usually make the East Coast look "wider" and the West more "compressed".
-        # This curve nudges points to match that feel.
-        #
-        # If East is too far RIGHT -> increase gamma slightly (e.g. 1.12 -> 1.18)
-        # If West is too far LEFT  -> decrease gamma slightly (e.g. 1.12 -> 1.07)
-        gamma = 1.12
-        x = x ** gamma
-        
-        # Small padding so pins don't touch borders
-        pad_x = int(map_w * 0.06)
-        pad_y = int(map_h * 0.10)
-        
-        inner_x = map_x + pad_x
-        inner_y = map_y + pad_y
-        inner_w = map_w - 2 * pad_x
-        inner_h = map_h - 2 * pad_y
-        
-        px = inner_x + int(x * inner_w)
-        py = inner_y + int(y * inner_h)
-        return px, py
+        x = inner_x + int(x_norm * inner_w)
+        y = inner_y + int(y_norm * inner_h)
+        return x, y
     
     def _get_city_coordinates(self, city_name: str) -> tuple:
         """
