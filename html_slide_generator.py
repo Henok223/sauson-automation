@@ -634,7 +634,8 @@ class HTMLSlideGenerator:
                 latlon = (39.5, -98.35)  # fallback center US
             
             lat, lon = latlon
-            pin_x, pin_y = self._latlon_to_map_xy(lat, lon, bbox)
+            map_x, map_y, map_w, map_h = bbox
+            pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_x, map_y, map_w, map_h)
             pin_y -= 6  # Small aesthetic offset
             
             # Debug prints
