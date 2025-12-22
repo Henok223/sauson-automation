@@ -910,11 +910,10 @@ class HTMLSlideGenerator:
         # Get final dimensions after rotation
         final_width, final_height = stage_img.size
         
-        # Paste aligned with Slauson&Co position (parallel alignment)
-        # After rotation, the text runs vertically, positioned to align with Slauson&Co at bottom
+        # Paste at the right side of the orange sidebar (moved significantly to the right)
+        # After rotation, the text runs vertically, positioned at the right edge of sidebar
         sidebar_width = 200  # Orange sidebar width
-        slauson_x = 10  # Slauson&Co position (left-aligned in sidebar)
-        paste_x = slauson_x  # Align with Slauson&Co position (parallel)
+        paste_x = sidebar_width - final_width - 20  # Position at right side of sidebar with padding
         paste_y = max(20, stage_top_y)  # Ensure it doesn't go outside top edge
         
         slide.paste(stage_img, (paste_x, paste_y), stage_img)
