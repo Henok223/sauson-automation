@@ -305,15 +305,56 @@ class HTMLSlideGenerator:
             # Return original image if manual removal fails
             return img.convert('RGBA')
     
-    def _get_map_bbox(self):
+    def _detect_orange_us_bbox(self, img: Image.Image):
         """
-        Hardcoded bbox for the US map in the template (x, y, w, h).
-        This is the MOST stable approach: no detection, no snapping.
-        TODO: tweak these 4 values ONCE to match your template.
-        Start with these and adjust by looking at output.
+        Detect the orange US map outline bbox in the template.
+        Restricts search to the TOP-RIGHT region to avoid the orange sidebar.
+        Returns (x0, y0, w, h). Falls back if it fails.
         """
-        # Hardcoded bbox - adjust these 4 values to match your template
-        return (1245, 95, 640, 360)
+        try:
+            W, H = img.size
+            arr = np.array(img.convert("RGB"))
+            
+            # --- ROI: where the map is on your template ---
+            # tune these if needed, but this matches your layout (map is top-right)
+            x_start = int(W * 0.55)
+            x_end   = int(W * 0.99)
+            y_start = int(H * 0.02)
+            y_end   = int(H * 0.45)
+            
+            roi = arr[y_start:y_end, x_start:x_end]
+            r, g, b = roi[..., 0], roi[..., 1], roi[..., 2]
+            
+            # Orange outline is bright orange lines, not a solid block:
+            # loosen thresholds a bit so thin lines still count
+            orange_mask = (r > 160) & (g > 80) & (g < 210) & (b < 140)
+            
+            ys, xs = np.where(orange_mask)
+            if len(xs) < 300:  # thin outlines -> fewer pixels; don't require 2000
+                print(f"   Warning: Only {len(xs)} orange pixels in ROI, using fallback bbox")
+                return (1250, 110, 620, 450)
+            
+            # bbox in ROI coords
+            x0r, x1r = int(xs.min()), int(xs.max())
+            y0r, y1r = int(ys.min()), int(ys.max())
+            
+            # Convert ROI bbox back to full-image coords
+            x0 = x_start + x0r
+            x1 = x_start + x1r
+            y0 = y_start + y0r
+            y1 = y_start + y1r
+            
+            pad = 10
+            x0 = max(0, x0 - pad)
+            y0 = max(0, y0 - pad)
+            x1 = min(W - 1, x1 + pad)
+            y1 = min(H - 1, y1 + pad)
+            
+            print(f"   Detected MAP bbox (ROI): ({x0}, {y0}, {x1-x0}, {y1-y0})")
+            return (x0, y0, x1 - x0, y1 - y0)
+        except Exception as e:
+            print(f"   Warning: Error detecting orange bbox: {e}, using fallback")
+            return (1250, 110, 620, 450)
     
     @lru_cache(maxsize=256)
     def _geocode_city(self, city: str):
@@ -367,9 +408,9 @@ class HTMLSlideGenerator:
         
         # IMPORTANT: keep PAD_L very small (this is what fixes LA/SF being too far right)
         PAD_L = 0.00
-        PAD_R = 0.02
-        PAD_T = 0.08
-        PAD_B = 0.12
+        PAD_R = 0.00
+        PAD_T = 0.00
+        PAD_B = 0.10
         
         inner_x = map_x + int(map_w * PAD_L)
         inner_y = map_y + int(map_h * PAD_T)
