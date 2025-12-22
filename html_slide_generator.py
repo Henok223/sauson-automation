@@ -669,6 +669,7 @@ class HTMLSlideGenerator:
             # Reuse map bbox detected earlier (for company name overlap detection)
             # map_area_x, map_area_y, map_width, map_height already set above
             
+            # Always use lat/lon projection (never normalized coordinates) for consistency
             # Geocode city to get real lat/lon
             latlon = self._geocode_city(location)
             
@@ -678,17 +679,15 @@ class HTMLSlideGenerator:
                 if latlon:
                     print(f"   Using lat/lon fallback for '{location}': {latlon}")
             
-            if latlon:
-                lat, lon = latlon
-                pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_area_x, map_area_y, map_width, map_height)
-                # Small aesthetic offset only (in pixels, not normalized)
-                pin_y -= 6  # Small visual tweak
-            else:
-                # Last-resort fallback: use old normalized coordinates dictionary
-                print(f"   Using normalized coordinate fallback for '{location}'")
-                city_coords = self._get_city_coordinates(location)
-                pin_x = map_area_x + int(city_coords[0] * map_width)
-                pin_y = map_area_y + int(city_coords[1] * map_height)
+            # Absolute last resort: use geographic center of contiguous US
+            if not latlon:
+                latlon = (39.5, -98.35)  # roughly geographic center of contiguous US
+                print(f"   Using default center coordinates for '{location}'")
+            
+            # All paths now use the same lat/lon projection math
+            lat, lon = latlon
+            pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_area_x, map_area_y, map_width, map_height)
+            pin_y -= 6  # Small aesthetic offset
             
             # Draw the pin (yellow location pin icon - teardrop shape with circular hole)
             yellow = (255, 215, 0)
