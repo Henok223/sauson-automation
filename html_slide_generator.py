@@ -304,24 +304,105 @@ class HTMLSlideGenerator:
             # Return original image if manual removal fails
             return img.convert('RGBA')
     
+    def _detect_orange_us_bbox(self, img: Image.Image):
+        """
+        Detect the orange US map outline bbox in the template.
+        Returns (x0, y0, w, h). Falls back to current constants if it fails.
+        """
+        try:
+            # Convert to RGB for thresholding
+            arr = np.array(img.convert("RGB"))
+            
+            # Heuristic for template orange (tweak if needed)
+            r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
+            # Orange detection: high red, medium-high green, low blue
+            orange_mask = (r > 180) & (g > 90) & (g < 180) & (b < 120)
+            
+            ys, xs = np.where(orange_mask)
+            if len(xs) < 2000:
+                # Not enough orange pixels found; fall back
+                print(f"   Warning: Only {len(xs)} orange pixels found, using fallback bbox")
+                return (1250, 110, 620, 450)
+            
+            x0, x1 = int(xs.min()), int(xs.max())
+            y0, y1 = int(ys.min()), int(ys.max())
+            
+            # Add a small padding so pins/labels don't clip edges
+            pad = 10
+            x0 = max(0, x0 - pad)
+            y0 = max(0, y0 - pad)
+            x1 = min(img.size[0] - 1, x1 + pad)
+            y1 = min(img.size[1] - 1, y1 + pad)
+            
+            width = x1 - x0
+            height = y1 - y0
+            
+            print(f"   Detected orange US map bbox: ({x0}, {y0}, {width}, {height})")
+            return (x0, y0, width, height)
+        except Exception as e:
+            print(f"   Warning: Error detecting orange bbox: {e}, using fallback")
+            return (1250, 110, 620, 450)
+    
+    def _geocode_city(self, city: str):
+        """
+        Geocode city name to (lat, lon) using geopy.
+        Returns (lat, lon) or None.
+        """
+        try:
+            from geopy.geocoders import Nominatim
+            geolocator = Nominatim(user_agent="slide_pin_placer")
+            # Bias to US
+            loc = geolocator.geocode(f"{city}, USA", country_codes="us", timeout=3)
+            if not loc:
+                return None
+            print(f"   Geocoded '{city}' to ({loc.latitude}, {loc.longitude})")
+            return (loc.latitude, loc.longitude)
+        except ImportError:
+            print(f"   Warning: geopy not installed, cannot geocode '{city}'")
+            return None
+        except Exception as e:
+            print(f"   Warning: Geocoding failed for '{city}': {e}")
+            return None
+    
+    def _latlon_to_map_xy(self, lat: float, lon: float, map_area_x: int, map_area_y: int, map_w: int, map_h: int):
+        """
+        Simple equirectangular mapping into the detected map bbox.
+        Good enough for "generally near" placement.
+        """
+        # Approx US bounds (contiguous). Adjust if your map includes AK/HI.
+        lon_min, lon_max = -125.0, -66.0
+        lat_min, lat_max = 24.0, 49.0
+        
+        # Clamp to bounds so weird geocodes don't fly off-map
+        lon = max(lon_min, min(lon_max, lon))
+        lat = max(lat_min, min(lat_max, lat))
+        
+        x_norm = (lon - lon_min) / (lon_max - lon_min)          # west->east
+        y_norm = 1.0 - (lat - lat_min) / (lat_max - lat_min)    # north->south (invert)
+        
+        x = map_area_x + int(x_norm * map_w)
+        y = map_area_y + int(y_norm * map_h)
+        return x, y
+    
     def _get_city_coordinates(self, city_name: str) -> tuple:
         """
         Get normalized coordinates (0-1) for US cities on a map.
         Returns (x, y) where x is 0 (west) to 1 (east), y is 0 (north) to 1 (south).
+        FALLBACK ONLY - prefer using _geocode_city + _latlon_to_map_xy
         """
         # Normalize city name
         city_lower = city_name.lower().split(',')[0].strip()
         
-        # Approximate US city positions (normalized coordinates) - Updated for accurate map projection
+        # Approximate US city positions (normalized coordinates) - Fallback only
         city_positions = {
             # West Coast
-            'san francisco': (0.05, 0.42),  # Updated: West Coast, California
-            'los angeles': (0.10, 0.60),   # Updated: West Coast, California - moved up and left
+            'san francisco': (0.05, 0.42),
+            'los angeles': (0.10, 0.60),
             'san diego': (0.10, 0.70),
             'seattle': (0.08, 0.20),
             'portland': (0.09, 0.25),
             # East Coast
-            'new york': (0.92, 0.35),      # Updated: East Coast
+            'new york': (0.92, 0.35),
             'boston': (0.95, 0.30),
             'philadelphia': (0.90, 0.38),
             'washington': (0.88, 0.40),
@@ -329,9 +410,9 @@ class HTMLSlideGenerator:
             'atlanta': (0.80, 0.60),
             # Central
             'chicago': (0.65, 0.35),
-            'dallas': (0.48, 0.72),        # Updated: Texas
+            'dallas': (0.48, 0.72),
             'houston': (0.50, 0.75),
-            'austin': (0.48, 0.72),        # Updated: Texas
+            'austin': (0.48, 0.72),
             'denver': (0.40, 0.45),
             'phoenix': (0.25, 0.65),
             'las vegas': (0.20, 0.55),
@@ -458,9 +539,8 @@ class HTMLSlideGenerator:
         founders_block_y = 400  # Approximate Y position of founders yellow block
         founders_text_x = 320  # Founders text X position
         
-        # Map boundaries for overlap detection
-        map_area_x = 1250
-        map_area_y = 110
+        # Auto-detect orange US map bounding box from template (for overlap detection)
+        map_area_x, map_area_y, map_width, map_height = self._detect_orange_us_bbox(template)
         
         # Company name position: aligned with founders but moved a bit to the left, significantly raised
         name_x = founders_text_x - 50  # Moved a bit to the left from founders position
@@ -542,21 +622,23 @@ class HTMLSlideGenerator:
         
         # 3. Updated Map Logic - Map is already in template, just add location text and adjust pin position
         try:
-            # Map visual boundaries (Approximate based on 1920x1080 slide)
-            # The map starts roughly at x=1250 and ends near the right edge
-            map_area_x = 1250  # Updated to match visual position
-            map_area_y = 110  # Updated to match visual position
-            map_width = 620   # Increased width to match visual scale
-            map_height = 450  # Increased height
+            # Auto-detect orange US map bounding box from template
+            map_area_x, map_area_y, map_width, map_height = self._detect_orange_us_bbox(template)
             
-            # Use more accurate normalized coordinates for this specific map projection
-            city_coords = self._get_city_coordinates(location)
+            # Geocode city to get real lat/lon
+            latlon = self._geocode_city(location)
             
-            # Calculate pixel position
-            # Adjust Y coordinate to move pin higher (reduce Y value by 0.1 to raise it)
-            adjusted_y = max(0.0, city_coords[1] - 0.1)  # Move pin up by 10% of map height
-            pin_x = map_area_x + int(city_coords[0] * map_width)
-            pin_y = map_area_y + int(adjusted_y * map_height)
+            if latlon:
+                lat, lon = latlon
+                pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_area_x, map_area_y, map_width, map_height)
+                # Small aesthetic offset only (in pixels, not normalized)
+                pin_y -= 6  # Small visual tweak
+            else:
+                # Fallback: use old coarse dictionary
+                print(f"   Using fallback coordinates for '{location}'")
+                city_coords = self._get_city_coordinates(location)
+                pin_x = map_area_x + int(city_coords[0] * map_width)
+                pin_y = map_area_y + int(city_coords[1] * map_height)
             
             # Draw the pin (yellow location pin icon - teardrop shape with circular hole)
             yellow = (255, 215, 0)
@@ -913,7 +995,7 @@ class HTMLSlideGenerator:
         # Paste at the right side of the orange sidebar (moved significantly to the right)
         # After rotation, the text runs vertically, positioned at the right edge of sidebar
         sidebar_width = 200  # Orange sidebar width
-        paste_x = sidebar_width - final_width - 5  # Position at right side of sidebar with minimal padding (moved further right)
+        paste_x = sidebar_width - final_width + 40  # Position at right side of sidebar with minimal padding (moved further right)
         paste_y = max(20, stage_top_y)  # Ensure it doesn't go outside top edge
         
         slide.paste(stage_img, (paste_x, paste_y), stage_img)
