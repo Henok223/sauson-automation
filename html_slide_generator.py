@@ -378,12 +378,24 @@ class HTMLSlideGenerator:
     
     def _latlon_to_map_xy(self, lat: float, lon: float, map_area_x: int, map_area_y: int, map_w: int, map_h: int):
         """
-        Simple equirectangular mapping into the detected map bbox.
-        Good enough for "generally near" placement.
+        Map lat/lon into the US map bbox, but shrink to an inner area to
+        compensate for whitespace around the outline (esp. Atlantic on the right).
         """
-        # Approx US bounds (contiguous). Adjust if your map includes AK/HI.
+        # Contiguous US-ish bounds
         lon_min, lon_max = -125.0, -66.0
         lat_min, lat_max = 24.0, 49.0
+        
+        # --- IMPORTANT: inner padding to match your template's outline placement ---
+        # Increase RIGHT pad to pull East Coast left.
+        PAD_L = 0.05
+        PAD_R = 0.20   # Key for East Coast cities (Miami, NYC) - adjust if needed
+        PAD_T = 0.06
+        PAD_B = 0.10
+        
+        inner_x = map_area_x + int(map_w * PAD_L)
+        inner_y = map_area_y + int(map_h * PAD_T)
+        inner_w = int(map_w * (1.0 - PAD_L - PAD_R))
+        inner_h = int(map_h * (1.0 - PAD_T - PAD_B))
         
         # Clamp to bounds so weird geocodes don't fly off-map
         lon = max(lon_min, min(lon_max, lon))
@@ -392,8 +404,8 @@ class HTMLSlideGenerator:
         x_norm = (lon - lon_min) / (lon_max - lon_min)          # west->east
         y_norm = 1.0 - (lat - lat_min) / (lat_max - lat_min)    # north->south (invert)
         
-        x = map_area_x + int(x_norm * map_w)
-        y = map_area_y + int(y_norm * map_h)
+        x = inner_x + int(x_norm * inner_w)
+        y = inner_y + int(y_norm * inner_h)
         return x, y
     
     def _get_city_coordinates(self, city_name: str) -> tuple:
