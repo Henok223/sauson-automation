@@ -760,9 +760,11 @@ class HTMLSlideGenerator:
                 fill=(100, 100, 100)
             )
             
-            # Paste the pin onto the main slide (centered at pin_x, pin_y)
+            # Paste the pin onto the main slide so the bottom tip lands on (pin_x, pin_y)
             paste_pin_x = pin_x - pin_img_size // 2
             paste_pin_y = pin_y - pin_img_size // 2
+            # Move image up so the bottom tip hits (pin_x, pin_y) instead of centering
+            paste_pin_y -= int(pin_img_size * 0.20)  # Adjust 0.18-0.25 if needed
             slide.paste(pin_img, (paste_pin_x, paste_pin_y), pin_img)
             draw = ImageDraw.Draw(slide)
             
