@@ -406,9 +406,9 @@ class HTMLSlideGenerator:
         lat_min, lat_max = 24.0, 49.0
         
         # --- IMPORTANT: inner padding to match your template's outline placement ---
-        # Safer starting point - tune with consistent lat/lon method
+        # Higher PAD_R needed to pull East Coast left (template projection compensation)
         PAD_L = 0.06
-        PAD_R = 0.12   # Reduced from 0.20 - tune if needed
+        PAD_R = 0.24   # Increased to pull East Coast left (try 0.20-0.30)
         PAD_T = 0.08
         PAD_B = 0.10
         
@@ -423,6 +423,16 @@ class HTMLSlideGenerator:
         
         x_norm = (lon - lon_min) / (lon_max - lon_min)          # west->east
         y_norm = 1.0 - (lat - lat_min) / (lat_max - lat_min)    # north->south (invert)
+        
+        # Compress the far-east longitudes (template projection compensation)
+        # Most US maps aren't linear - they use Albers/Lambert/stylized projections
+        # This compresses the east coast to match the template's actual outline
+        EAST_START = 0.75     # where compression begins (0..1)
+        EAST_COMPRESS = 0.80  # 0.75-1.0 gets shrunk (lower = more compression)
+        
+        if x_norm > EAST_START:
+            t = (x_norm - EAST_START) / (1.0 - EAST_START)  # 0..1
+            x_norm = EAST_START + t * EAST_COMPRESS * (1.0 - EAST_START)
         
         x = inner_x + int(x_norm * inner_w)
         y = inner_y + int(y_norm * inner_h)
@@ -688,6 +698,10 @@ class HTMLSlideGenerator:
             lat, lon = latlon
             pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_area_x, map_area_y, map_width, map_height)
             pin_y -= 6  # Small aesthetic offset
+            
+            # Debug prints to verify bbox detection stability and pin placement
+            print(f"   MAP_BBOX: ({map_area_x}, {map_area_y}, {map_width}, {map_height})")
+            print(f"   CITY: {location}, LATLON: {latlon}, PIN: ({pin_x}, {pin_y})")
             
             # Draw the pin (yellow location pin icon - teardrop shape with circular hole)
             yellow = (255, 215, 0)
