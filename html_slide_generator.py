@@ -307,38 +307,50 @@ class HTMLSlideGenerator:
     def _detect_orange_us_bbox(self, img: Image.Image):
         """
         Detect the orange US map outline bbox in the template.
-        Returns (x0, y0, w, h). Falls back to current constants if it fails.
+        Restricts search to the TOP-RIGHT region to avoid the orange sidebar.
+        Returns (x0, y0, w, h). Falls back if it fails.
         """
         try:
-            # Convert to RGB for thresholding
+            W, H = img.size
             arr = np.array(img.convert("RGB"))
             
-            # Heuristic for template orange (tweak if needed)
-            r, g, b = arr[..., 0], arr[..., 1], arr[..., 2]
-            # Orange detection: high red, medium-high green, low blue
-            orange_mask = (r > 180) & (g > 90) & (g < 180) & (b < 120)
+            # --- ROI: where the map is on your template ---
+            # tune these if needed, but this matches your layout (map is top-right)
+            x_start = int(W * 0.55)
+            x_end   = int(W * 0.99)
+            y_start = int(H * 0.02)
+            y_end   = int(H * 0.45)
+            
+            roi = arr[y_start:y_end, x_start:x_end]
+            r, g, b = roi[..., 0], roi[..., 1], roi[..., 2]
+            
+            # Orange outline is bright orange lines, not a solid block:
+            # loosen thresholds a bit so thin lines still count
+            orange_mask = (r > 160) & (g > 80) & (g < 210) & (b < 140)
             
             ys, xs = np.where(orange_mask)
-            if len(xs) < 2000:
-                # Not enough orange pixels found; fall back
-                print(f"   Warning: Only {len(xs)} orange pixels found, using fallback bbox")
+            if len(xs) < 300:  # thin outlines -> fewer pixels; don't require 2000
+                print(f"   Warning: Only {len(xs)} orange pixels in ROI, using fallback bbox")
                 return (1250, 110, 620, 450)
             
-            x0, x1 = int(xs.min()), int(xs.max())
-            y0, y1 = int(ys.min()), int(ys.max())
+            # bbox in ROI coords
+            x0r, x1r = int(xs.min()), int(xs.max())
+            y0r, y1r = int(ys.min()), int(ys.max())
             
-            # Add a small padding so pins/labels don't clip edges
+            # Convert ROI bbox back to full-image coords
+            x0 = x_start + x0r
+            x1 = x_start + x1r
+            y0 = y_start + y0r
+            y1 = y_start + y1r
+            
             pad = 10
             x0 = max(0, x0 - pad)
             y0 = max(0, y0 - pad)
-            x1 = min(img.size[0] - 1, x1 + pad)
-            y1 = min(img.size[1] - 1, y1 + pad)
+            x1 = min(W - 1, x1 + pad)
+            y1 = min(H - 1, y1 + pad)
             
-            width = x1 - x0
-            height = y1 - y0
-            
-            print(f"   Detected orange US map bbox: ({x0}, {y0}, {width}, {height})")
-            return (x0, y0, width, height)
+            print(f"   Detected MAP bbox (ROI): ({x0}, {y0}, {x1-x0}, {y1-y0})")
+            return (x0, y0, x1 - x0, y1 - y0)
         except Exception as e:
             print(f"   Warning: Error detecting orange bbox: {e}, using fallback")
             return (1250, 110, 620, 450)
@@ -622,8 +634,8 @@ class HTMLSlideGenerator:
         
         # 3. Updated Map Logic - Map is already in template, just add location text and adjust pin position
         try:
-            # Auto-detect orange US map bounding box from template
-            map_area_x, map_area_y, map_width, map_height = self._detect_orange_us_bbox(template)
+            # Reuse map bbox detected earlier (for company name overlap detection)
+            # map_area_x, map_area_y, map_width, map_height already set above
             
             # Geocode city to get real lat/lon
             latlon = self._geocode_city(location)
