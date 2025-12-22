@@ -396,6 +396,37 @@ class HTMLSlideGenerator:
         }
         return LATLON.get(key)
     
+    def _snap_to_orange_outline(self, template_img: Image.Image, x: int, y: int, bbox: tuple, radius: int = 60):
+        """
+        Snap pin coordinates to the nearest orange outline pixel.
+        This makes the pin 'stick' to the actual coastline/outline.
+        """
+        map_x, map_y, map_w, map_h = bbox
+        arr = np.array(template_img.convert("RGB"))
+        
+        # Define search region around the pin
+        x0 = max(map_x, x - radius)
+        x1 = min(map_x + map_w - 1, x + radius)
+        y0 = max(map_y, y - radius)
+        y1 = min(map_y + map_h - 1, y + radius)
+        
+        roi = arr[y0:y1+1, x0:x1+1]
+        r, g, b = roi[..., 0], roi[..., 1], roi[..., 2]
+        
+        # Same orange threshold used for bbox detection
+        mask = (r > 160) & (g > 80) & (g < 210) & (b < 140)
+        
+        ys, xs = np.where(mask)
+        if len(xs) == 0:
+            return x, y  # Nothing to snap to, return original
+        
+        # Find nearest pixel in ROI coords
+        dx = xs - (x - x0)
+        dy = ys - (y - y0)
+        idx = np.argmin(dx*dx + dy*dy)
+        
+        return (x0 + int(xs[idx]), y0 + int(ys[idx]))
+    
     def _latlon_to_map_xy(self, lat: float, lon: float, map_area_x: int, map_area_y: int, map_w: int, map_h: int):
         """
         Map lat/lon into the US map bbox, but shrink to an inner area to
@@ -405,10 +436,9 @@ class HTMLSlideGenerator:
         lon_min, lon_max = -125.0, -66.0
         lat_min, lat_max = 24.0, 49.0
         
-        # --- IMPORTANT: inner padding to match your template's outline placement ---
-        # Higher PAD_R needed to pull East Coast left (template projection compensation)
+        # Keep padding modest — you already have bbox + outline whitespace
         PAD_L = 0.06
-        PAD_R = 0.24   # Increased to pull East Coast left (try 0.20-0.30)
+        PAD_R = 0.06   # Reduced from 0.24 (was too big, causing double east shrink)
         PAD_T = 0.08
         PAD_B = 0.10
         
@@ -424,15 +454,9 @@ class HTMLSlideGenerator:
         x_norm = (lon - lon_min) / (lon_max - lon_min)          # west->east
         y_norm = 1.0 - (lat - lat_min) / (lat_max - lat_min)    # north->south (invert)
         
-        # Compress the far-east longitudes (template projection compensation)
-        # Most US maps aren't linear - they use Albers/Lambert/stylized projections
-        # This compresses the east coast to match the template's actual outline
-        EAST_START = 0.75     # where compression begins (0..1)
-        EAST_COMPRESS = 0.80  # 0.75-1.0 gets shrunk (lower = more compression)
-        
-        if x_norm > EAST_START:
-            t = (x_norm - EAST_START) / (1.0 - EAST_START)  # 0..1
-            x_norm = EAST_START + t * EAST_COMPRESS * (1.0 - EAST_START)
+        # REMOVED east compression - was causing double east shrink with PAD_R
+        # If NYC is slightly too far right, bump PAD_R to 0.08-0.10
+        # If NYC is too far left, reduce PAD_R to 0.03-0.05
         
         x = inner_x + int(x_norm * inner_w)
         y = inner_y + int(y_norm * inner_h)
@@ -696,7 +720,11 @@ class HTMLSlideGenerator:
             
             # All paths now use the same lat/lon projection math
             lat, lon = latlon
+            bbox = (map_area_x, map_area_y, map_width, map_height)
             pin_x, pin_y = self._latlon_to_map_xy(lat, lon, map_area_x, map_area_y, map_width, map_height)
+            
+            # Snap pin to nearest orange outline pixel (makes pin stick to coastline)
+            pin_x, pin_y = self._snap_to_orange_outline(template, pin_x, pin_y, bbox, radius=80)
             pin_y -= 6  # Small aesthetic offset
             
             # Debug prints to verify bbox detection stability and pin placement
