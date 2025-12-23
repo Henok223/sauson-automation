@@ -1100,6 +1100,21 @@ class HTMLSlideGenerator:
                     except Exception as e:
                         print(f"   Warning: fallback background removal failed: {e}")
 
+                    # Extra aggressive background knock-out on bright/neutral walls
+                    try:
+                        arr = np.array(headshot_img)
+                        if arr.shape[2] >= 4:
+                            rgb = arr[..., :3]
+                            alpha = arr[..., 3]
+                            gray = rgb.mean(axis=2)
+                            # Treat bright background as transparent
+                            bg_mask = gray > 170  # brighten threshold (tune if needed)
+                            alpha[bg_mask] = (alpha[bg_mask] * 0.1).astype(np.uint8)  # nearly transparent
+                            arr[..., 3] = alpha
+                            headshot_img = Image.fromarray(arr, 'RGBA')
+                    except Exception as e:
+                        print(f"   Warning: extra background cleanup failed: {e}")
+
                     # Convert person to greyscale while preserving transparency
                     try:
                         if headshot_img.mode == 'RGBA':
@@ -1207,8 +1222,8 @@ class HTMLSlideGenerator:
         text_y = padding  # Position at top edge - becomes right edge after rotation
         
         # Draw stroke by drawing text multiple times with slight offsets (thicker effect)
-        for adj in range(-4, 5):
-            for adj2 in range(-4, 5):
+        for adj in range(-3, 4):  # slightly less bold
+            for adj2 in range(-3, 4):
                 if adj != 0 or adj2 != 0:
                     stage_draw.text((text_x + adj, text_y + adj2), stage_text, fill=stroke_color, font=sidebar_bold_font)
         
