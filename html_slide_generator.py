@@ -1152,7 +1152,7 @@ class HTMLSlideGenerator:
                 headshot_area_height = int(500 * 2.2)  # 1100 (120% bigger than original)
                 # Shift to the right by reducing the negative offset
                 headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50  # Shifted right (was -150, now -50)
-                headshot_area_y = map_area_y + map_height - 50  # Raised (was +20, now -50 to move up)
+                headshot_area_y = map_area_y + map_height - 100  # Raised more to prevent cutoff
                 
                 # Don't erase background - keep it transparent (no black box)
                 # Just paste the headshot directly
@@ -1224,65 +1224,49 @@ class HTMLSlideGenerator:
         text_width = bbox[2] - bbox[0]
         text_height = bbox[3] - bbox[1]
         
-        # Create vertical image to draw text from bottom to top (360 degrees = no rotation)
-        # Draw text vertically with "PRE-SEED" at bottom, "2024" at top
-        padding = 50
-        words = stage_text.split()
-        
-        # Calculate max word width for image sizing
-        temp_img = Image.new('RGBA', (1000, 1000), (0, 0, 0, 0))
-        temp_draw = ImageDraw.Draw(temp_img)
-        max_word_width = 0
-        for word in words:
-            word_bbox = temp_draw.textbbox((0, 0), word, font=sidebar_bold_font)
-            max_word_width = max(max_word_width, word_bbox[2] - word_bbox[0])
-        
-        # Image should be tall (height) and narrow (width) for vertical text
-        stage_img_width = max(max_word_width, 200) + padding * 2
-        stage_img_height = text_height * len(words) + padding * 2 + (len(words) - 1) * 10  # Height for multiple lines with spacing
+        # Create image for single-line text, rotated -90 degrees (same as SLAUSON&CO)
+        # When rotated -90 degrees, width becomes height and height becomes width
+        padding = 150  # Increased padding to prevent cutoff
+        stage_img_width = text_height + padding * 2  # Width after rotation
+        stage_img_height = text_width + padding * 2  # Height after rotation
         
         # Ensure minimum size
-        stage_img_width = max(stage_img_width, 200)
-        stage_img_height = max(stage_img_height, 400)
+        stage_img_width = max(stage_img_width, 400)
+        stage_img_height = max(stage_img_height, 700)
         
         stage_img = Image.new('RGBA', (stage_img_width, stage_img_height), (0, 0, 0, 0))
         stage_draw = ImageDraw.Draw(stage_img)
         
-        # Reverse so "PRE-SEED" is at bottom, "2024" is at top
-        words_reversed = list(reversed(words))
+        # Reverse word order so when rotated it reads from bottom to top
+        # "PRE-SEED Q2 2024" becomes "2024 Q2 PRE-SEED"
+        # After -90 rotation, reading bottom-to-top gives "PRE-SEED Q2 2024"
+        words = stage_text.split()
+        stage_text_reversed = ' '.join(reversed(words))
         
-        # Calculate line spacing
-        line_height = text_height + 10
-        start_y = stage_img_height - padding - text_height  # Start from bottom
+        # Center text horizontally before rotation
+        text_x = stage_img_width // 2 - text_width // 2
+        text_y = padding  # Position at top edge - becomes left edge after rotation
         
-        # Draw each word vertically, from bottom to top
-        for i, word in enumerate(words_reversed):
-            word_y = start_y - (i * line_height)
-            # Get word width for centering
-            word_bbox = stage_draw.textbbox((0, 0), word, font=sidebar_bold_font)
-            word_width = word_bbox[2] - word_bbox[0]
-            word_x = stage_img_width // 2 - word_width // 2  # Center horizontally
-            
-            # Draw stroke for each word
-            for adj in range(-2, 3):
-                for adj2 in range(-2, 3):
-                    if adj != 0 or adj2 != 0:
-                        stage_draw.text((word_x + adj, word_y + adj2), word, fill=stroke_color, font=sidebar_bold_font)
-            
-            # Draw main text for each word
-            stage_draw.text((word_x, word_y), word, fill=stage_color, font=sidebar_bold_font)
+        # Draw stroke by drawing text multiple times with slight offsets (thicker effect)
+        for adj in range(-2, 3):
+            for adj2 in range(-2, 3):
+                if adj != 0 or adj2 != 0:
+                    stage_draw.text((text_x + adj, text_y + adj2), stage_text_reversed, fill=stroke_color, font=sidebar_bold_font)
         
-        # Rotate 360 degrees (no rotation, but keeping the rotation call for consistency)
-        stage_img = stage_img.rotate(360, expand=True)
+        # Then draw the main text on top
+        stage_draw.text((text_x, text_y), stage_text_reversed, fill=stage_color, font=sidebar_bold_font)
+        
+        # Rotate -90 degrees (counter-clockwise) - same as SLAUSON&CO
+        stage_img = stage_img.rotate(-90, expand=True)
         
         # Get final dimensions after rotation
         final_width, final_height = stage_img.size
         
-        # Paste at the top of the orange sidebar
-        # Text is already vertical (no rotation), reading from bottom to top
+        # Paste at the right side of the orange sidebar
+        # After rotation, the text runs vertically, positioned at the right edge of sidebar
         sidebar_width = 200  # Orange sidebar width
-        paste_x = sidebar_width // 2 - final_width // 2  # Center horizontally in sidebar
-        paste_y = max(20, stage_top_y)  # Position at top of sidebar
+        paste_x = sidebar_width - final_width + 40  # Position at right side of sidebar with minimal padding
+        paste_y = max(20, stage_top_y)  # Ensure it doesn't go outside top edge
         
         slide.paste(stage_img, (paste_x, paste_y), stage_img)
         
