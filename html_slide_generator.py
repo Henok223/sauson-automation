@@ -1012,145 +1012,153 @@ class HTMLSlideGenerator:
             draw.text((bg_text_x, bg_text_y + i * 36), line, fill=bg_color, font=bg_font)  # Slightly more spacing
         
         # 7. Replace headshots (below map, moved left, bigger size, transparent)
+        headshot_processed = False
         try:
             from image_processor import ImageProcessor
             
             # First, validate that the headshot file exists and is a valid image
+            # If not, skip headshot processing (don't crash the entire slide generation)
             if not headshot_path or not os.path.exists(headshot_path):
-                raise ValueError(f"Headshot file not found: {headshot_path}")
+                print(f"Warning: Headshot file not found: {headshot_path}, skipping headshot")
+                headshot_path = None
             
-            # Try to open the original image first to validate it
-            try:
-                test_img = Image.open(headshot_path)
-                test_img.verify()  # Verify it's a valid image
-                test_img.close()
-            except Exception as e:
-                print(f"Warning: Headshot file is not a valid image: {e}")
-                raise ValueError(f"Invalid headshot image: {e}")
-            
-            # Remove background from headshot to make it transparent
-            # Skip API-based removal if REMOVEBG_API_KEY is not set (to avoid timeouts)
-            use_api_removal = False
-            try:
-                from config import Config
-                if hasattr(Config, 'REMOVEBG_API_KEY') and Config.REMOVEBG_API_KEY and Config.REMOVEBG_API_KEY.strip():
-                    use_api_removal = True
-            except:
-                pass
-            
-            if not use_api_removal:
-                print(f"   REMOVEBG_API_KEY not set, using manual background removal...")
-                # Skip API call and go straight to manual removal
-                headshot_img = Image.open(headshot_path).convert('RGBA')
-                headshot_img = self._remove_background_manual(headshot_img)
-            else:
+            if headshot_path:
+                # Try to open the original image first to validate it (quick check)
                 try:
-                    print(f"   Removing background from headshot...")
-                    # Use requests timeout to prevent hanging
-                    headshot_no_bg_bytes = ImageProcessor.remove_background(headshot_path)
-                    
-                    # Validate the returned bytes before trying to open them
-                    if not headshot_no_bg_bytes or len(headshot_no_bg_bytes) == 0:
-                        raise ValueError("Background removal returned empty bytes")
-                    
-                    # Check if it looks like image data (starts with image magic bytes)
-                    image_magic_bytes = [
-                        b'\x89PNG',  # PNG
-                        b'\xff\xd8\xff',  # JPEG
-                        b'GIF8',  # GIF
-                        b'RIFF',  # WebP
-                    ]
-                    is_image = any(headshot_no_bg_bytes.startswith(magic) for magic in image_magic_bytes)
-                    
-                    if not is_image:
-                        # Might be valid but check if it's HTML error page or something
-                        if b'<html' in headshot_no_bg_bytes[:1000].lower() or b'error' in headshot_no_bg_bytes[:1000].lower():
-                            raise ValueError("Background removal returned HTML error page instead of image")
-                        # If it doesn't match magic bytes but isn't HTML, still try to open it
-                        print(f"   Warning: Returned bytes don't match standard image formats, attempting to open anyway...")
-                    
-                    # Try to open the image
-                    try:
-                        headshot_img = Image.open(io.BytesIO(headshot_no_bg_bytes))
-                        headshot_img.load()  # Force load to catch decode errors early
-                        headshot_img = headshot_img.convert('RGBA')
-                    except Exception as img_error:
-                        print(f"   Warning: Failed to open background-removed image: {img_error}")
-                        raise ValueError(f"Invalid image data from background removal: {img_error}")
-                    
-                    # Verify background was actually removed by checking alpha channel
-                    # If all pixels are opaque, background removal may have failed
-                    import numpy as np
-                    alpha_channel = np.array(headshot_img.split()[3])
-                    transparent_pixels = np.sum(alpha_channel < 255)
-                    total_pixels = alpha_channel.size
-                    transparency_ratio = transparent_pixels / total_pixels
-                    
-                    if transparency_ratio < 0.01:  # Less than 1% transparent pixels
-                        print(f"   Warning: Background removal may have failed (only {transparency_ratio*100:.1f}% transparent pixels)")
-                        print(f"   Attempting manual background removal...")
-                        # Try to manually remove white/light backgrounds
-                        headshot_img = self._remove_background_manual(headshot_img)
-                    else:
-                        print(f"   ✓ Background removed successfully ({transparency_ratio*100:.1f}% transparent pixels)")
+                    test_img = Image.open(headshot_path)
+                    # Don't verify - just check if we can open it (verify is slow)
+                    test_img.close()
                 except Exception as e:
-                    print(f"Warning: Background removal failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    # Fallback: use original image and try manual removal
-                    print(f"   Falling back to original image with manual background removal...")
+                    print(f"Warning: Headshot file is not a valid image: {e}, skipping headshot")
+                    headshot_path = None
+            
+            # Only process headshot if we have a valid path
+            if not headshot_path:
+                print("   Skipping headshot processing (no valid headshot file)")
+            else:
+                # Remove background from headshot to make it transparent
+                # Skip API-based removal if REMOVEBG_API_KEY is not set (to avoid timeouts)
+                use_api_removal = False
+                try:
+                    from config import Config
+                    if hasattr(Config, 'REMOVEBG_API_KEY') and Config.REMOVEBG_API_KEY and Config.REMOVEBG_API_KEY.strip():
+                        use_api_removal = True
+                except:
+                    pass
+                
+                if not use_api_removal:
+                    print(f"   REMOVEBG_API_KEY not set, using manual background removal...")
+                    # Skip API call and go straight to manual removal
                     headshot_img = Image.open(headshot_path).convert('RGBA')
                     headshot_img = self._remove_background_manual(headshot_img)
-
-            # Convert person to greyscale while preserving transparency
-            try:
-                if headshot_img.mode == 'RGBA':
-                    # Split channels to preserve alpha
-                    r, g, b, a = headshot_img.split()
-                    # Convert RGB to greyscale, keep alpha channel
-                    gray = headshot_img.convert('L')
-                    # Merge greyscale with original alpha channel to preserve transparency
-                    headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
                 else:
-                    # If not RGBA, convert to RGBA first
-                    headshot_img = headshot_img.convert('RGBA')
-                    r, g, b, a = headshot_img.split()
-                    gray = headshot_img.convert('L')
-                    headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
-            except Exception as e:
-                print(f"Warning: Failed to convert headshot to greyscale: {e}")
-                # Ensure it's still RGBA even if conversion fails
+                    try:
+                        print(f"   Removing background from headshot...")
+                        # Use requests timeout to prevent hanging
+                        headshot_no_bg_bytes = ImageProcessor.remove_background(headshot_path)
+                        
+                        # Validate the returned bytes before trying to open them
+                        if not headshot_no_bg_bytes or len(headshot_no_bg_bytes) == 0:
+                            raise ValueError("Background removal returned empty bytes")
+                        
+                        # Check if it looks like image data (starts with image magic bytes)
+                        image_magic_bytes = [
+                            b'\x89PNG',  # PNG
+                            b'\xff\xd8\xff',  # JPEG
+                            b'GIF8',  # GIF
+                            b'RIFF',  # WebP
+                        ]
+                        is_image = any(headshot_no_bg_bytes.startswith(magic) for magic in image_magic_bytes)
+                        
+                        if not is_image:
+                            # Might be valid but check if it's HTML error page or something
+                            if b'<html' in headshot_no_bg_bytes[:1000].lower() or b'error' in headshot_no_bg_bytes[:1000].lower():
+                                raise ValueError("Background removal returned HTML error page instead of image")
+                            # If it doesn't match magic bytes but isn't HTML, still try to open it
+                            print(f"   Warning: Returned bytes don't match standard image formats, attempting to open anyway...")
+                        
+                        # Try to open the image
+                        try:
+                            headshot_img = Image.open(io.BytesIO(headshot_no_bg_bytes))
+                            headshot_img.load()  # Force load to catch decode errors early
+                            headshot_img = headshot_img.convert('RGBA')
+                        except Exception as img_error:
+                            print(f"   Warning: Failed to open background-removed image: {img_error}")
+                            raise ValueError(f"Invalid image data from background removal: {img_error}")
+                        
+                        # Verify background was actually removed by checking alpha channel
+                        # If all pixels are opaque, background removal may have failed
+                        import numpy as np
+                        alpha_channel = np.array(headshot_img.split()[3])
+                        transparent_pixels = np.sum(alpha_channel < 255)
+                        total_pixels = alpha_channel.size
+                        transparency_ratio = transparent_pixels / total_pixels
+                        
+                        if transparency_ratio < 0.01:  # Less than 1% transparent pixels
+                            print(f"   Warning: Background removal may have failed (only {transparency_ratio*100:.1f}% transparent pixels)")
+                            print(f"   Attempting manual background removal...")
+                            # Try to manually remove white/light backgrounds
+                            headshot_img = self._remove_background_manual(headshot_img)
+                        else:
+                            print(f"   ✓ Background removed successfully ({transparency_ratio*100:.1f}% transparent pixels)")
+                    except Exception as e:
+                        print(f"Warning: Background removal failed: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # Fallback: use original image and try manual removal
+                        print(f"   Falling back to original image with manual background removal...")
+                        headshot_img = Image.open(headshot_path).convert('RGBA')
+                        headshot_img = self._remove_background_manual(headshot_img)
+
+                # Convert person to greyscale while preserving transparency
+                try:
+                    if headshot_img.mode == 'RGBA':
+                        # Split channels to preserve alpha
+                        r, g, b, a = headshot_img.split()
+                        # Convert RGB to greyscale, keep alpha channel
+                        gray = headshot_img.convert('L')
+                        # Merge greyscale with original alpha channel to preserve transparency
+                        headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
+                    else:
+                        # If not RGBA, convert to RGBA first
+                        headshot_img = headshot_img.convert('RGBA')
+                        r, g, b, a = headshot_img.split()
+                        gray = headshot_img.convert('L')
+                        headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
+                except Exception as e:
+                    print(f"Warning: Failed to convert headshot to greyscale: {e}")
+                    # Ensure it's still RGBA even if conversion fails
+                    if headshot_img.mode != 'RGBA':
+                        headshot_img = headshot_img.convert('RGBA')
+                
+                # Position headshots below the map, moved to the left
+                # Use map_area_x, map_area_y, map_width, map_height already detected above
+                
+                # Headshot - substantially increased size
+                headshot_area_width = int(550 * 2.2)   # 1210 (120% bigger than original)
+                headshot_area_height = int(500 * 2.2)  # 1100 (120% bigger than original)
+                # Shift to the right by reducing the negative offset
+                headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50  # Shifted right (was -150, now -50)
+                headshot_area_y = map_area_y + map_height - 50  # Raised (was +20, now -50 to move up)
+                
+                # Don't erase background - keep it transparent (no black box)
+                # Just paste the headshot directly
+                
+                # Resize headshot to be bigger (preserve alpha channel)
+                headshot_img.thumbnail((headshot_area_width, headshot_area_height), Image.Resampling.LANCZOS)
+                
+                # Ensure headshot is RGBA with transparency
                 if headshot_img.mode != 'RGBA':
                     headshot_img = headshot_img.convert('RGBA')
-            
-            # Position headshots below the map, moved to the left
-            # Use map_area_x, map_area_y, map_width, map_height already detected above
-            
-            # Headshot - substantially increased size
-            headshot_area_width = int(550 * 2.2)   # 1210 (120% bigger than original)
-            headshot_area_height = int(500 * 2.2)  # 1100 (120% bigger than original)
-            # Shift to the right by reducing the negative offset
-            headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50  # Shifted right (was -150, now -50)
-            headshot_area_y = map_area_y + map_height - 50  # Raised (was +20, now -50 to move up)
-            
-            # Don't erase background - keep it transparent (no black box)
-            # Just paste the headshot directly
-            
-            # Resize headshot to be bigger (preserve alpha channel)
-            headshot_img.thumbnail((headshot_area_width, headshot_area_height), Image.Resampling.LANCZOS)
-            
-            # Ensure headshot is RGBA with transparency
-            if headshot_img.mode != 'RGBA':
-                headshot_img = headshot_img.convert('RGBA')
-            
-            # Center headshot in the area
-            headshot_w, headshot_h = headshot_img.size
-            paste_x = headshot_area_x + (headshot_area_width - headshot_w) // 2
-            paste_y = headshot_area_y + (headshot_area_height - headshot_h) // 2
-            
-            # Paste with transparency using alpha channel as mask
-            slide.paste(headshot_img, (paste_x, paste_y), headshot_img.split()[3] if headshot_img.mode == 'RGBA' else headshot_img)
-            draw = ImageDraw.Draw(slide)
+                
+                # Center headshot in the area
+                headshot_w, headshot_h = headshot_img.size
+                paste_x = headshot_area_x + (headshot_area_width - headshot_w) // 2
+                paste_y = headshot_area_y + (headshot_area_height - headshot_h) // 2
+                
+                # Paste with transparency using alpha channel as mask
+                slide.paste(headshot_img, (paste_x, paste_y), headshot_img.split()[3] if headshot_img.mode == 'RGBA' else headshot_img)
+                draw = ImageDraw.Draw(slide)
         except Exception as e:
             print(f"Warning: Could not load headshot: {e}")
             import traceback
