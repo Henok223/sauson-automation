@@ -1094,13 +1094,13 @@ class HTMLSlideGenerator:
                     else:
                         print(f"   ✓ Background removed successfully ({transparency_ratio*100:.1f}% transparent pixels)")
                 except Exception as e:
-                print(f"Warning: Background removal failed: {e}")
-                import traceback
-                traceback.print_exc()
-                # Fallback: use original image and try manual removal
-                print(f"   Falling back to original image with manual background removal...")
-                headshot_img = Image.open(headshot_path).convert('RGBA')
-                headshot_img = self._remove_background_manual(headshot_img)
+                    print(f"Warning: Background removal failed: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback: use original image and try manual removal
+                    print(f"   Falling back to original image with manual background removal...")
+                    headshot_img = Image.open(headshot_path).convert('RGBA')
+                    headshot_img = self._remove_background_manual(headshot_img)
 
             # Convert person to greyscale while preserving transparency
             try:
