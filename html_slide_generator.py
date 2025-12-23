@@ -1105,19 +1105,25 @@ class HTMLSlideGenerator:
                         
                         if transparency_ratio < 0.01:  # Less than 1% transparent pixels
                             print(f"   Warning: Background removal may have failed (only {transparency_ratio*100:.1f}% transparent pixels)")
-                            print(f"   Attempting manual background removal...")
-                            # Try to manually remove white/light backgrounds
-                            headshot_img = self._remove_background_manual(headshot_img)
+                            print(f"   Using image as-is (manual removal skipped to prevent crashes)")
+                            # Don't try manual removal - just use the image as-is
                         else:
                             print(f"   ✓ Background removed successfully ({transparency_ratio*100:.1f}% transparent pixels)")
                     except Exception as e:
                         print(f"Warning: Background removal failed: {e}")
                         import traceback
                         traceback.print_exc()
-                        # Fallback: use original image and try manual removal
-                        print(f"   Falling back to original image with manual background removal...")
-                        headshot_img = Image.open(headshot_path).convert('RGBA')
-                        headshot_img = self._remove_background_manual(headshot_img)
+                        # Fallback: use original image as-is (no manual removal)
+                        print(f"   Falling back to original image (no background removal)")
+                        headshot_img = Image.open(headshot_path)
+                        # Resize to prevent memory issues
+                        max_size = 1500
+                        if max(headshot_img.size) > max_size:
+                            ratio = max_size / max(headshot_img.size)
+                            new_size = (int(headshot_img.size[0] * ratio), int(headshot_img.size[1] * ratio))
+                            print(f"   Resizing headshot from {headshot_img.size} to {new_size} to reduce memory usage")
+                            headshot_img = headshot_img.resize(new_size, Image.Resampling.LANCZOS)
+                        headshot_img = headshot_img.convert('RGBA')
 
                 # Convert person to greyscale while preserving transparency
                 try:
