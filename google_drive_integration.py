@@ -163,6 +163,51 @@ class GoogleDriveIntegration:
         except HttpError as error:
             raise Exception(f"Google Drive upload error: {error}")
     
+    def delete_file(self, file_id: str) -> bool:
+        """
+        Delete a file from Google Drive by file ID.
+        
+        Args:
+            file_id: Google Drive file ID
+            
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        if not self.service:
+            raise ValueError("Google Drive service not initialized")
+        
+        try:
+            self.service.files().delete(fileId=file_id).execute()
+            print(f"✓ Deleted Google Drive file: {file_id}")
+            return True
+        except HttpError as e:
+            print(f"⚠️  Error deleting Google Drive file {file_id}: {e}")
+            return False
+    
+    def extract_file_id_from_url(self, url: str) -> Optional[str]:
+        """
+        Extract file ID from Google Drive URL.
+        
+        Args:
+            url: Google Drive URL (webViewLink or webContentLink)
+            
+        Returns:
+            File ID or None if not found
+        """
+        import re
+        # Try different URL formats
+        patterns = [
+            r'/file/d/([a-zA-Z0-9_-]+)',  # Standard format: /file/d/FILE_ID/view
+            r'id=([a-zA-Z0-9_-]+)',  # Query param format: ?id=FILE_ID
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, url)
+            if match:
+                return match.group(1)
+        
+        return None
+    
     def create_folder(self, folder_name: str, parent_folder_id: Optional[str] = None) -> str:
         """
         Create a folder in Google Drive.

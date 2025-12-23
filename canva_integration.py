@@ -467,6 +467,40 @@ class CanvaIntegration:
         # Timeout
         raise Exception(f"Import job {job_id} did not complete within {max_wait_seconds} seconds")
     
+    def delete_design(self, design_id: str) -> bool:
+        """
+        Delete a Canva design by design ID.
+        
+        Args:
+            design_id: Canva design ID (e.g., "DAG7kettpY0")
+            
+        Returns:
+            True if deletion successful, False otherwise
+        """
+        try:
+            access_token = self._get_access_token()
+            if not access_token:
+                print("⚠️  Cannot delete Canva design: No access token")
+                return False
+            
+            url = f"{self.base_url}/designs/{design_id}"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            response = requests.delete(url, headers=headers)
+            
+            if response.status_code == 204 or response.status_code == 200:
+                print(f"✓ Deleted Canva design: {design_id}")
+                return True
+            else:
+                print(f"⚠️  Error deleting Canva design {design_id}: {response.status_code} - {response.text}")
+                return False
+        except Exception as e:
+            print(f"⚠️  Exception deleting Canva design: {e}")
+            return False
+    
     def _load_tokens(self):
         """Load stored OAuth tokens from file."""
         if os.path.exists(self.token_file):

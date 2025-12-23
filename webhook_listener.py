@@ -486,7 +486,21 @@ def handle_onboarding():
                         print(f"⚠️  Could not check for existing slides: {e}")
                         # Continue with creating new slides
                 
-                # Step 6: Upload PDF to Google Drive
+                # Step 6: Delete old Google Drive file if it exists
+                if existing_slides and existing_google_drive_link:
+                    try:
+                        drive = GoogleDriveIntegration()
+                        old_file_id = drive.extract_file_id_from_url(existing_google_drive_link)
+                        if old_file_id:
+                            print(f"🗑️  Deleting old Google Drive file: {old_file_id}")
+                            drive.delete_file(old_file_id)
+                        else:
+                            print(f"⚠️  Could not extract file ID from URL: {existing_google_drive_link}")
+                    except Exception as e:
+                        print(f"⚠️  Error deleting old Google Drive file: {e}")
+                        # Continue anyway - we'll upload new file
+                
+                # Step 7: Upload PDF to Google Drive
                 print("Uploading PDF to Google Drive...")
                 # Define filename before both uploads so it's available for both
                 filename = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
@@ -507,7 +521,21 @@ def handle_onboarding():
                     print(f"Warning: Google Drive upload failed: {e}")
                     results["errors"].append(f"Google Drive: {str(e)}")
                 
-                # Step 7: Upload PDF to Canva as asset (required)
+                # Step 8: Delete old Canva design if it exists
+                if existing_slides and existing_canva_design_id:
+                    try:
+                        has_canva_creds = (
+                            (Config.CANVA_API_KEY or (Config.CANVA_CLIENT_ID and Config.CANVA_CLIENT_SECRET))
+                        )
+                        if has_canva_creds:
+                            print(f"🗑️  Deleting old Canva design: {existing_canva_design_id}")
+                            canva = CanvaIntegration()
+                            canva.delete_design(existing_canva_design_id)
+                    except Exception as e:
+                        print(f"⚠️  Error deleting old Canva design: {e}")
+                        # Continue anyway - we'll create new design
+                
+                # Step 9: Upload PDF to Canva as asset (required)
                 canva_asset_id = None
                 canva_design_id = None
                 canva_design_url = None
@@ -517,10 +545,6 @@ def handle_onboarding():
                         and Config.CANVA_TEMPLATE_ID
                     )
                     if has_canva_creds:
-                        if existing_slides and existing_canva_design_id:
-                            print(f"📋 Existing Canva design found: {existing_canva_design_id}")
-                            print("   Note: Canva designs are immutable, so a new design will be created")
-                        
                         print("Uploading slide PDF to Canva as asset...")
                         canva = CanvaIntegration()
                         canva_asset_id = canva.upload_pdf_asset(slide_pdf_bytes, filename)
@@ -554,7 +578,7 @@ def handle_onboarding():
                     results["errors"].append(f"Canva PDF upload: {str(e)}")
                     # Don't fail the entire workflow, but log the error
                 
-                # Step 8: DocSend (optional - uses Google Drive sync)
+                # Step 10: DocSend (optional - uses Google Drive sync)
                 print("DocSend integration via Google Drive...")
                 docsend_link = None
                 
@@ -584,7 +608,7 @@ def handle_onboarding():
                     # You can manually get the DocSend link from the Google Drive file
                     # Or set up DocSend API later to get the link programmatically
                 
-                # Step 9: Update Notion record
+                # Step 11: Update Notion record
                 print("Updating Notion record...")
                 if notion_page_id and Config.NOTION_API_KEY:
                     try:
