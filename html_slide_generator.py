@@ -1189,16 +1189,8 @@ class HTMLSlideGenerator:
         else:
             stage_text = investment_stage.upper()
         
-        # Use bigger, bolder font for sidebar text (similar size to company name but rotated)
-        # Adjust size down for long labels like "PRE-SEED Q4 2024" to avoid cutoff
-        stage_font_size = 40
-        # Check for "PRE-SEED" or other long stage names
-        if "PRE-SEED" in stage_text or len(stage_text) > 14:
-            stage_font_size = 34
-        if len(stage_text) > 18:
-            stage_font_size = 30
-        if len(stage_text) > 22:
-            stage_font_size = 26  # Extra small for very long text
+        # Use same font size as SLAUSON&CO (28pt)
+        stage_font_size = 28
         sidebar_bold_font = self._load_font(stage_font_size, bold=True)
         
         # Don't erase background - keep it transparent
@@ -1255,7 +1247,7 @@ class HTMLSlideGenerator:
         
         # --- Fit the rotated image into the sidebar safely ---
         sidebar_w = 200
-        top_margin = 25
+        top_margin = 80  # Lower the text (moved down from 25)
         bottom_margin = 25
         side_margin = 10
         
@@ -1495,10 +1487,10 @@ class HTMLSlideGenerator:
             investment_stage = f"{round_val} {quarter_val} {year_val}"
         
         if investment_stage:
-            # Position: left-aligned in sidebar, near top, rotated bottom->top
+            # Position: left-aligned in sidebar, lowered, rotated bottom->top
             sidebar_width_px = 200
             paste_x_px = 10
-            paste_y_px = 25
+            paste_y_px = 80  # Lower the text (moved down from 25)
             text_width_px = 180  # sidebar-safe width
             
             textbox = slide_pptx.shapes.add_textbox(
@@ -1513,14 +1505,8 @@ class HTMLSlideGenerator:
             p = tf.paragraphs[0]
             run = p.add_run()
             run.text = investment_stage
-            # Dynamic font size (same as PIL)
-            font_size = 40
-            if len(investment_stage) > 15:
-                font_size = 34
-            if len(investment_stage) > 20:
-                font_size = 30
-            if len(investment_stage) > 25:
-                font_size = 26
+            # Same font size as SLAUSON&CO (28pt)
+            font_size = 28
             run.font.size = Pt(font_size)
             run.font.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0)  # Black
