@@ -1237,12 +1237,12 @@ class HTMLSlideGenerator:
         stage_img = Image.new('RGBA', (stage_img_width, stage_img_height), (0, 0, 0, 0))
         stage_draw = ImageDraw.Draw(stage_img)
         
-        # Draw text normally (no word reversal) at the bottom of the image
-        # When rotated -90 degrees, the bottom becomes the left side
-        # Reading from bottom-to-top means reading from left-to-right on the original horizontal text
+        # Draw text normally (no word reversal) at the top of the image
+        # When rotated -90 degrees, the top becomes the right side
+        # Position text at top so after rotation it's properly positioned
         # Center text horizontally before rotation
         text_x = stage_img_width // 2 - text_width // 2
-        text_y = stage_img_height - text_height - padding  # Position at bottom edge - becomes left edge after rotation
+        text_y = padding  # Position at top edge - becomes right edge after rotation
         
         # Draw stroke by drawing text multiple times with slight offsets (thicker effect)
         for adj in range(-2, 3):
@@ -1259,11 +1259,17 @@ class HTMLSlideGenerator:
         # Get final dimensions after rotation
         final_width, final_height = stage_img.size
         
-        # Paste at the right side of the orange sidebar
-        # After rotation, the text runs vertically, positioned at the right edge of sidebar
+        # Paste at the top of the orange sidebar, left-aligned
+        # After rotation, the text runs vertically, reading from bottom to top
         sidebar_width = 200  # Orange sidebar width
-        paste_x = sidebar_width - final_width + 40  # Position at right side of sidebar with minimal padding
-        paste_y = max(20, stage_top_y)  # Ensure it doesn't go outside top edge
+        paste_x = 10  # Align to left side of sidebar (same as SLAUSON&CO)
+        paste_y = 20  # Position at top of sidebar (fixed position to ensure visibility)
+        
+        # Ensure paste coordinates are within slide bounds
+        if paste_x + final_width > sidebar_width:
+            paste_x = max(0, sidebar_width - final_width - 10)
+        if paste_y + final_height > height:
+            paste_y = max(20, height - final_height - 20)
         
         slide.paste(stage_img, (paste_x, paste_y), stage_img)
         
