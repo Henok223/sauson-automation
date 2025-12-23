@@ -1253,17 +1253,33 @@ class HTMLSlideGenerator:
         # Rotate so text reads bottom -> top (same as SLAUSON&CO)
         stage_img = stage_img.rotate(90, expand=True)
         
-        # Get final dimensions after rotation
-        final_width, final_height = stage_img.size
+        # --- Fit the rotated image into the sidebar safely ---
+        sidebar_w = 200
+        top_margin = 25
+        bottom_margin = 25
+        side_margin = 10
         
-        # Center horizontally inside the sidebar (matches reference slide)
-        sidebar_width = 200  # orange sidebar width in template
-        paste_x = (sidebar_width - final_width) // 2
+        max_w = sidebar_w - 2 * side_margin
+        max_h = height - top_margin - bottom_margin  # height is slide height (1080)
         
-        # Put it near the top (matches reference slide)
-        paste_y = 25  # tweak: 10-50
+        final_w, final_h = stage_img.size
         
-        # Paste it
+        # Scale DOWN if needed to fit
+        scale = min(max_w / final_w, max_h / final_h, 1.0)
+        if scale < 1.0:
+            new_w = max(1, int(final_w * scale))
+            new_h = max(1, int(final_h * scale))
+            stage_img = stage_img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+            final_w, final_h = stage_img.size
+        
+        # Compute placement (centered in sidebar, near top)
+        paste_x = side_margin + (max_w - final_w) // 2
+        paste_y = top_margin
+        
+        # Clamp so it can NEVER go off-canvas
+        paste_x = max(0, min(paste_x, sidebar_w - final_w))
+        paste_y = max(0, min(paste_y, height - final_h))
+        
         slide.paste(stage_img, (paste_x, paste_y), stage_img)
         
         # Convert to RGB for PDF
@@ -1479,11 +1495,11 @@ class HTMLSlideGenerator:
             investment_stage = f"{round_val} {quarter_val} {year_val}"
         
         if investment_stage:
-            # Position: center horizontally in sidebar, near top (matches PIL version)
+            # Position: left-aligned in sidebar, near top, rotated bottom->top
             sidebar_width_px = 200
-            text_width_px = 150  # Approximate
-            paste_x_px = (sidebar_width_px - text_width_px) // 2  # Center horizontally
-            paste_y_px = 25  # Near top (tweak: 10-50)
+            paste_x_px = 10
+            paste_y_px = 25
+            text_width_px = 180  # sidebar-safe width
             
             textbox = slide_pptx.shapes.add_textbox(
                 Inches(paste_x_px * px_to_inch),
@@ -1491,6 +1507,7 @@ class HTMLSlideGenerator:
                 Inches(text_width_px * px_to_inch),
                 Inches(3.0)
             )
+            textbox.rotation = 270  # bottom->top like the sidebar
             tf = textbox.text_frame
             tf.word_wrap = False
             p = tf.paragraphs[0]
@@ -1523,8 +1540,8 @@ class HTMLSlideGenerator:
             # Headshot target box (tuned to match reference slide)
             headshot_area_width_px = 720
             headshot_area_height_px = 820
-            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 + 40
-            headshot_area_y_px = map_area_y + int(map_height * 0.52)
+            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 + 30
+            headshot_area_y_px = map_area_y + int(map_height * 0.52) - 10
             
             slide_pptx.shapes.add_picture(
                 headshot_bytes,
