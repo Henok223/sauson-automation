@@ -1189,8 +1189,8 @@ class HTMLSlideGenerator:
         else:
             stage_text = investment_stage.upper()
         
-        # Use same font size as SLAUSON&CO (28pt)
-        stage_font_size = 28
+        # Use bigger font size for better visibility (36-46pt range)
+        stage_font_size = 40
         sidebar_bold_font = self._load_font(stage_font_size, bold=True)
         
         # Don't erase background - keep it transparent
@@ -1215,7 +1215,7 @@ class HTMLSlideGenerator:
         
         # Create image for single-line text, rotated -90 degrees (same as SLAUSON&CO)
         # When rotated -90 degrees, width becomes height and height becomes width
-        padding = 150  # Increased padding to prevent cutoff
+        padding = 60  # Reduced padding to prevent excessive scaling
         stage_img_width = text_height + padding * 2  # Width after rotation
         stage_img_height = text_width + padding * 2  # Height after rotation
         
@@ -1247,17 +1247,18 @@ class HTMLSlideGenerator:
         
         # --- Fit the rotated image into the sidebar safely ---
         sidebar_w = 200
-        top_margin = 80  # Lower the text (moved down from 25)
-        bottom_margin = 25
-        side_margin = 10
+        top_margin = 55  # Adjusted for better fit
+        bottom_margin = 15  # Reduced to give more usable height
+        side_margin = 6  # Reduced to give more usable width
         
         max_w = sidebar_w - 2 * side_margin
         max_h = height - top_margin - bottom_margin  # height is slide height (1080)
         
         final_w, final_h = stage_img.size
         
-        # Scale DOWN if needed to fit
+        # Scale DOWN if needed to fit, but don't let it get microscopic
         scale = min(max_w / final_w, max_h / final_h, 1.0)
+        scale = max(scale, 0.85)  # Minimum scale floor to prevent tiny text
         if scale < 1.0:
             new_w = max(1, int(final_w * scale))
             new_h = max(1, int(final_h * scale))
@@ -1487,27 +1488,31 @@ class HTMLSlideGenerator:
             investment_stage = f"{round_val} {quarter_val} {year_val}"
         
         if investment_stage:
-            # Position: left-aligned in sidebar, lowered, rotated bottom->top
-            sidebar_width_px = 200
             paste_x_px = 10
-            paste_y_px = 80  # Lower the text (moved down from 25)
-            text_width_px = 180  # sidebar-safe width
+            paste_y_px = 50
+            
+            # Make the textbox TALL/WIDE BEFORE rotation so it has room after rotation.
+            # Use most of the slide height.
+            box_w_px = 180
+            box_h_px = 950   # <-- big, prevents "tiny" rendering
             
             textbox = slide_pptx.shapes.add_textbox(
                 Inches(paste_x_px * px_to_inch),
                 Inches(paste_y_px * px_to_inch),
-                Inches(text_width_px * px_to_inch),
-                Inches(3.0)
+                Inches(box_w_px * px_to_inch),
+                Inches(box_h_px * px_to_inch),
             )
             textbox.rotation = 270  # bottom->top like the sidebar
+            
             tf = textbox.text_frame
             tf.word_wrap = False
+            
             p = tf.paragraphs[0]
             run = p.add_run()
             run.text = investment_stage
-            # Same font size as SLAUSON&CO (28pt)
-            font_size = 28
-            run.font.size = Pt(font_size)
+            
+            # BIGGER FONT (36-46pt range)
+            run.font.size = Pt(40)
             run.font.bold = True
             run.font.color.rgb = RGBColor(0, 0, 0)  # Black
         
