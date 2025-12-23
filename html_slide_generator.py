@@ -1050,7 +1050,16 @@ class HTMLSlideGenerator:
                     print(f"   REMOVEBG_API_KEY not set, skipping background removal (using image as-is)")
                     # Just use the image as-is - no background removal
                     # Manual background removal is too memory-intensive and causes worker crashes
-                    headshot_img = Image.open(headshot_path).convert('RGBA')
+                    # IMPORTANT: Resize image FIRST to reduce memory usage before any processing
+                    headshot_img = Image.open(headshot_path)
+                    # Resize to reasonable size (max 1500px on longest side) to prevent memory issues
+                    max_size = 1500
+                    if max(headshot_img.size) > max_size:
+                        ratio = max_size / max(headshot_img.size)
+                        new_size = (int(headshot_img.size[0] * ratio), int(headshot_img.size[1] * ratio))
+                        print(f"   Resizing headshot from {headshot_img.size} to {new_size} to reduce memory usage")
+                        headshot_img = headshot_img.resize(new_size, Image.Resampling.LANCZOS)
+                    headshot_img = headshot_img.convert('RGBA')
                 else:
                     try:
                         print(f"   Removing background from headshot...")
