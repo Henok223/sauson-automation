@@ -502,7 +502,17 @@ class CanvaIntegration:
             return False
     
     def _load_tokens(self):
-        """Load stored OAuth tokens from file."""
+        """Load stored OAuth tokens from environment variables or file."""
+        # Priority 1: Load from environment variables (for Render/production)
+        if hasattr(Config, 'CANVA_ACCESS_TOKEN') and Config.CANVA_ACCESS_TOKEN:
+            self._access_token = Config.CANVA_ACCESS_TOKEN
+            if hasattr(Config, 'CANVA_REFRESH_TOKEN') and Config.CANVA_REFRESH_TOKEN:
+                self._refresh_token = Config.CANVA_REFRESH_TOKEN
+            if self._access_token:
+                print("✓ Loaded Canva OAuth tokens from environment variables")
+                return
+        
+        # Priority 2: Load from file (for local development)
         if os.path.exists(self.token_file):
             try:
                 import json
@@ -511,7 +521,7 @@ class CanvaIntegration:
                     self._access_token = tokens.get("access_token")
                     self._refresh_token = tokens.get("refresh_token")
                     if self._access_token:
-                        print("✓ Loaded stored Canva OAuth tokens")
+                        print("✓ Loaded stored Canva OAuth tokens from file")
             except Exception as e:
                 print(f"Warning: Could not load tokens from {self.token_file}: {e}")
     
