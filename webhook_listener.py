@@ -489,15 +489,21 @@ def handle_onboarding():
                 # Step 6: Delete old Google Drive file if it exists
                 if existing_slides and existing_google_drive_link:
                     try:
-                        drive = GoogleDriveIntegration()
-                        old_file_id = drive.extract_file_id_from_url(existing_google_drive_link)
-                        if old_file_id:
-                            print(f"🗑️  Deleting old Google Drive file: {old_file_id}")
-                            drive.delete_file(old_file_id)
+                        # Only try to delete if we have Google Drive credentials
+                        if Config.GOOGLE_DRIVE_CREDENTIALS_JSON or os.path.exists("token.json"):
+                            drive = GoogleDriveIntegration()
+                            old_file_id = drive.extract_file_id_from_url(existing_google_drive_link)
+                            if old_file_id:
+                                print(f"🗑️  Deleting old Google Drive file: {old_file_id}")
+                                drive.delete_file(old_file_id)
+                            else:
+                                print(f"⚠️  Could not extract file ID from URL: {existing_google_drive_link}")
                         else:
-                            print(f"⚠️  Could not extract file ID from URL: {existing_google_drive_link}")
+                            print("⚠️  Google Drive credentials not configured, skipping deletion")
                     except Exception as e:
                         print(f"⚠️  Error deleting old Google Drive file: {e}")
+                        import traceback
+                        traceback.print_exc()
                         # Continue anyway - we'll upload new file
                 
                 # Step 7: Upload PDF to Google Drive
@@ -531,8 +537,12 @@ def handle_onboarding():
                             print(f"🗑️  Deleting old Canva design: {existing_canva_design_id}")
                             canva = CanvaIntegration()
                             canva.delete_design(existing_canva_design_id)
+                        else:
+                            print("⚠️  Canva credentials not configured, skipping deletion")
                     except Exception as e:
                         print(f"⚠️  Error deleting old Canva design: {e}")
+                        import traceback
+                        traceback.print_exc()
                         # Continue anyway - we'll create new design
                 
                 # Step 9: Upload PDF to Canva as asset (required)
