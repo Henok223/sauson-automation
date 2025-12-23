@@ -1147,24 +1147,21 @@ class HTMLSlideGenerator:
                 # Position headshots below the map, moved to the left
                 # Use map_area_x, map_area_y, map_width, map_height already detected above
                 
-                # Headshot - substantially increased size
-                headshot_area_width = int(550 * 2.2)   # 1210 (120% bigger than original)
-                headshot_area_height = int(500 * 2.2)  # 1100 (120% bigger than original)
-                # Shift to the right by reducing the negative offset
-                headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50  # Shifted right (was -150, now -50)
-                headshot_area_y = map_area_y + map_height - 110  # raise headshot ~100px
+                # Headshot target box (tuned to match reference slide)
+                headshot_area_width = 720   # tweak 650-820
+                headshot_area_height = 820   # tweak 760-920
                 
-                # Don't erase background - keep it transparent (no black box)
-                # Just paste the headshot directly
+                # Anchor relative to the map bbox so it stays consistent across templates
+                headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 + 40  # push slightly right
+                headshot_area_y = map_area_y + int(map_height * 0.52)  # <-- raises it (key!)
                 
-                # Resize headshot to be bigger (preserve alpha channel)
+                # Resize and paste
                 headshot_img.thumbnail((headshot_area_width, headshot_area_height), Image.Resampling.LANCZOS)
                 
                 # Ensure headshot is RGBA with transparency
                 if headshot_img.mode != 'RGBA':
                     headshot_img = headshot_img.convert('RGBA')
                 
-                # Center headshot in the area
                 headshot_w, headshot_h = headshot_img.size
                 paste_x = headshot_area_x + (headshot_area_width - headshot_w) // 2
                 paste_y = headshot_area_y + (headshot_area_height - headshot_h) // 2
@@ -1259,17 +1256,14 @@ class HTMLSlideGenerator:
         # Get final dimensions after rotation
         final_width, final_height = stage_img.size
         
-        # Place it in the orange sidebar, ABOVE the SLAUSON&CO mark, aligned the same way
-        sidebar_width = 200
-        paste_x = 10  # same left alignment as SLAUSON&CO
+        # Center horizontally inside the sidebar (matches reference slide)
+        sidebar_width = 200  # orange sidebar width in template
+        paste_x = (sidebar_width - final_width) // 2
         
-        # Put it near the bottom, but above the "SLAUSON&CO." area
-        # (tune the 220 gap if you want more/less spacing)
-        paste_y = height - final_height - 220
+        # Put it near the top (matches reference slide)
+        paste_y = 25  # tweak: 10-50
         
-        # Clamp to keep inside slide
-        paste_y = max(20, min(paste_y, height - final_height - 20))
-        
+        # Paste it
         slide.paste(stage_img, (paste_x, paste_y), stage_img)
         
         # Convert to RGB for PDF
@@ -1485,13 +1479,11 @@ class HTMLSlideGenerator:
             investment_stage = f"{round_val} {quarter_val} {year_val}"
         
         if investment_stage:
-            # Position: right side of sidebar (from PIL: sidebar_width - final_width - 20, paste_y = max(20, stage_top_y))
+            # Position: center horizontally in sidebar, near top (matches PIL version)
             sidebar_width_px = 200
-            stage_top_y_px = 80
-            # Estimate text width
             text_width_px = 150  # Approximate
-            paste_x_px = sidebar_width_px - text_width_px - 20
-            paste_y_px = max(20, stage_top_y_px)
+            paste_x_px = (sidebar_width_px - text_width_px) // 2  # Center horizontally
+            paste_y_px = 25  # Near top (tweak: 10-50)
             
             textbox = slide_pptx.shapes.add_textbox(
                 Inches(paste_x_px * px_to_inch),
@@ -1528,10 +1520,11 @@ class HTMLSlideGenerator:
             # Position from PIL: headshot_area_width = 550 * 2.2 = 1210, headshot_area_height = 500 * 2.2 = 1100
             # headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50
             # headshot_area_y = map_area_y + map_height - 50
-            headshot_area_width_px = int(550 * 2.2)
-            headshot_area_height_px = int(500 * 2.2)
-            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 - 50
-            headshot_area_y_px = map_area_y + map_height - 50
+            # Headshot target box (tuned to match reference slide)
+            headshot_area_width_px = 720
+            headshot_area_height_px = 820
+            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 + 40
+            headshot_area_y_px = map_area_y + int(map_height * 0.52)
             
             slide_pptx.shapes.add_picture(
                 headshot_bytes,
