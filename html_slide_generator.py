@@ -532,6 +532,7 @@ class HTMLSlideGenerator:
         Run this once to find the best padding values.
         """
         template = self._pdf_to_image(template_path) if template_path.endswith('.pdf') else Image.open(template_path)
+        template.load()  # Load fully before resize to avoid memory issues
         template = template.resize((1920, 1080), Image.Resampling.LANCZOS)
         
         map_x, map_y, map_w, map_h = self._detect_orange_us_bbox(template)
@@ -669,6 +670,7 @@ class HTMLSlideGenerator:
         else:
             # Load as image
             template = Image.open(self.template_path).convert('RGBA')
+            template.load()  # Load fully before resize to avoid memory issues
         
         # Resize to standard slide size if needed
         if template.size != (1920, 1080):
@@ -767,6 +769,8 @@ class HTMLSlideGenerator:
         # 2. Replace logo (circular, top right) - fit within circular bounds, higher position, transparent, more circular
         try:
             logo_img = Image.open(logo_path).convert('RGBA')
+            # Load image fully before operations to avoid lazy loading issues
+            logo_img.load()
             logo_x, logo_y = width - 170, 10  # Raised more (was 20, now 10) to avoid map overlap
             logo_size = 130
             
@@ -788,7 +792,9 @@ class HTMLSlideGenerator:
             min_dim = min(logo_w, logo_h)
             logo_img = logo_img.crop(((logo_w - min_dim) // 2, (logo_h - min_dim) // 2, 
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
-            logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
+            # No need to resize again - thumbnail already resized it, just ensure exact size if needed
+            if logo_img.size != (logo_size - 20, logo_size - 20):
+                logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
             
             # Apply circular mask to logo
             logo_masked = Image.new('RGBA', (logo_size, logo_size), (0, 0, 0, 0))
@@ -1051,14 +1057,16 @@ class HTMLSlideGenerator:
                     # Skip rembg for now - it can cause memory issues on first model load
                     # If you want background removal, set REMOVEBG_API_KEY or use rembg later
                     # Just resize and use image as-is
+                    # Use thumbnail() instead of resize() - more memory efficient
                     headshot_img = Image.open(headshot_path)
+                    # Load image fully before operations to avoid lazy loading issues
+                    headshot_img.load()
                     # Resize to reasonable size (max 1500px) to prevent memory issues
                     max_size = 1500
                     if max(headshot_img.size) > max_size:
-                        ratio = max_size / max(headshot_img.size)
-                        new_size = (int(headshot_img.size[0] * ratio), int(headshot_img.size[1] * ratio))
-                        print(f"   Resizing headshot from {headshot_img.size} to {new_size} to reduce memory usage")
-                        headshot_img = headshot_img.resize(new_size, Image.Resampling.LANCZOS)
+                        print(f"   Resizing headshot from {headshot_img.size} to max {max_size}px to reduce memory usage")
+                        # Use thumbnail() - more memory efficient, maintains aspect ratio, modifies in-place
+                        headshot_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
                     headshot_img = headshot_img.convert('RGBA')
                 else:
                     try:
@@ -1105,13 +1113,14 @@ class HTMLSlideGenerator:
                         # Fallback: use original image as-is (no manual removal)
                         print(f"   Falling back to original image (no background removal)")
                         headshot_img = Image.open(headshot_path)
+                        # Load image fully before operations to avoid lazy loading issues
+                        headshot_img.load()
                         # Resize to prevent memory issues
                         max_size = 1500
                         if max(headshot_img.size) > max_size:
-                            ratio = max_size / max(headshot_img.size)
-                            new_size = (int(headshot_img.size[0] * ratio), int(headshot_img.size[1] * ratio))
-                            print(f"   Resizing headshot from {headshot_img.size} to {new_size} to reduce memory usage")
-                            headshot_img = headshot_img.resize(new_size, Image.Resampling.LANCZOS)
+                            print(f"   Resizing headshot from {headshot_img.size} to max {max_size}px to reduce memory usage")
+                            # Use thumbnail() - more memory efficient, maintains aspect ratio, modifies in-place
+                            headshot_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
                         headshot_img = headshot_img.convert('RGBA')
 
                 # Convert person to greyscale while preserving transparency
@@ -1389,6 +1398,8 @@ class HTMLSlideGenerator:
         # 2) Logo (top right, editable) - from PIL code: logo_x, logo_y = width - 170, 10
         if logo_path and os.path.exists(logo_path):
             logo_img = Image.open(logo_path).convert('RGBA')
+            # Load image fully before operations to avoid lazy loading issues
+            logo_img.load()
             # Make circular (same as PIL code)
             logo_size_px = 130
             logo_img.thumbnail((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
@@ -1403,7 +1414,9 @@ class HTMLSlideGenerator:
             min_dim = min(logo_w, logo_h)
             logo_img = logo_img.crop(((logo_w - min_dim) // 2, (logo_h - min_dim) // 2, 
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
-            logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
+            # Only resize if thumbnail didn't produce exact size
+            if logo_img.size != (logo_size_px - 20, logo_size_px - 20):
+                logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
             logo_masked = Image.new('RGBA', (logo_size_px, logo_size_px), (0, 0, 0, 0))
             logo_masked.paste(logo_img, (10, 10), logo_img)
             logo_masked.putalpha(circle_mask)
@@ -1502,8 +1515,9 @@ class HTMLSlideGenerator:
         if headshot_path and os.path.exists(headshot_path):
             headshot_bytes = io.BytesIO()
             headshot_img = Image.open(headshot_path).convert('RGBA')
+            headshot_img.load()  # Load fully before save to avoid memory issues
             # Process headshot (background removal already done in PIL code)
-            headshot_img.save(headshot_bytes, format='PNG')
+            headshot_img.save(headshot_bytes, format='PNG', optimize=False)
             headshot_bytes.seek(0)
             
             # Position from PIL: headshot_area_width = 550 * 2.2 = 1210, headshot_area_height = 500 * 2.2 = 1100
@@ -1600,7 +1614,8 @@ class HTMLSlideGenerator:
         if map_path and os.path.exists(map_path):
             map_bytes = io.BytesIO()
             map_img = Image.open(map_path).convert('RGBA')
-            map_img.save(map_bytes, format='PNG')
+            map_img.load()  # Load fully before save to avoid memory issues
+            map_img.save(map_bytes, format='PNG', optimize=False)
             map_bytes.seek(0)
             
             # Position: top right area (from detected map area)
