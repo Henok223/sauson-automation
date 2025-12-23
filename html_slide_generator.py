@@ -1226,12 +1226,12 @@ class HTMLSlideGenerator:
         stage_img = Image.new('RGBA', (stage_img_width, stage_img_height), (0, 0, 0, 0))
         stage_draw = ImageDraw.Draw(stage_img)
         
-        # Draw text normally (no word reversal) at the top of the image
-        # When rotated -90 degrees, the top becomes the right side
-        # Position text at top so after rotation it's properly positioned
+        # Draw text at the bottom of the image before rotation
+        # When rotated 90 degrees clockwise, the bottom becomes the left side
+        # Reading left-to-right on vertical text = reading bottom-to-top ✓
         # Center text horizontally before rotation
         text_x = stage_img_width // 2 - text_width // 2
-        text_y = padding  # Position at top edge - becomes right edge after rotation
+        text_y = stage_img_height - text_height - padding  # Position at bottom edge - becomes left edge after rotation
         
         # Draw stroke by drawing text multiple times with slight offsets (thicker effect)
         for adj in range(-2, 3):
@@ -1527,7 +1527,7 @@ class HTMLSlideGenerator:
             headshot_area_width_px = 720
             headshot_area_height_px = 820
             headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 + 30
-            headshot_area_y_px = map_area_y + int(map_height * 0.52) - 10
+            headshot_area_y_px = map_area_y + int(map_height * 0.52) - 15
             
             slide_pptx.shapes.add_picture(
                 headshot_bytes,
