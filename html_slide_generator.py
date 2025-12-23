@@ -1068,6 +1068,12 @@ class HTMLSlideGenerator:
                         # Use thumbnail() - more memory efficient, maintains aspect ratio, modifies in-place
                         headshot_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
                     headshot_img = headshot_img.convert('RGBA')
+                
+                # Ensure transparent background even without external removal
+                try:
+                    headshot_img = self._remove_background_manual(headshot_img)
+                except Exception as e:
+                    print(f"   Warning: fallback background removal failed: {e}")
                 else:
                     try:
                         print(f"   Removing background from headshot...")
@@ -1234,8 +1240,8 @@ class HTMLSlideGenerator:
         text_y = padding  # Position at top edge - becomes right edge after rotation
         
         # Draw stroke by drawing text multiple times with slight offsets (thicker effect)
-        for adj in range(-2, 3):
-            for adj2 in range(-2, 3):
+        for adj in range(-3, 4):
+            for adj2 in range(-3, 4):
                 if adj != 0 or adj2 != 0:
                     stage_draw.text((text_x + adj, text_y + adj2), stage_text, fill=stroke_color, font=sidebar_bold_font)
         
@@ -1266,7 +1272,7 @@ class HTMLSlideGenerator:
             final_w, final_h = stage_img.size
         
         # Compute placement
-        paste_x = 10              # align with SLAUSON&CO left
+        paste_x = 12              # align with SLAUSON&CO left
         paste_y = top_margin + 25 # lower it
         
         # Clamp so it can NEVER go off-canvas
@@ -1488,7 +1494,7 @@ class HTMLSlideGenerator:
             investment_stage = f"{round_val} {quarter_val} {year_val}"
         
         if investment_stage:
-            paste_x_px = 14   # slightly right
+            paste_x_px = 15   # slightly right
             paste_y_px = 70   # lower
             
             # Make the textbox TALL/WIDE BEFORE rotation so it has room after rotation.
@@ -1521,6 +1527,11 @@ class HTMLSlideGenerator:
             headshot_bytes = io.BytesIO()
             headshot_img = Image.open(headshot_path).convert('RGBA')
             headshot_img.load()  # Load fully before save to avoid memory issues
+            # Ensure transparent background for PPTX as well
+            try:
+                headshot_img = self._remove_background_manual(headshot_img)
+            except Exception as e:
+                print(f"   Warning: PPTX fallback background removal failed: {e}")
             # Process headshot (background removal already done in PIL code)
             headshot_img.save(headshot_bytes, format='PNG', optimize=False)
             headshot_bytes.seek(0)
