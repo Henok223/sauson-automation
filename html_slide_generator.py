@@ -1275,12 +1275,21 @@ class HTMLSlideGenerator:
         slide_rgb.paste(slide, mask=slide.split()[3] if slide.mode == 'RGBA' else None)
         
         # Convert to PDF
-        img_bytes = io.BytesIO()
-        slide_rgb.save(img_bytes, format='PNG')
-        img_bytes.seek(0)
-        
-        pdf_bytes = img2pdf.convert(img_bytes.getvalue())
-        return pdf_bytes
+        # Use temporary file to avoid PIL's fileno() issue with BytesIO
+        import tempfile
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+            try:
+                slide_rgb.save(tmp_file.name, format='PNG', optimize=False)
+                with open(tmp_file.name, 'rb') as f:
+                    img_bytes = f.read()
+                pdf_bytes = img2pdf.convert(img_bytes)
+                return pdf_bytes
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(tmp_file.name)
+                except:
+                    pass
     
     def _create_pptx_from_slide(
         self, 
