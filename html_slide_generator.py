@@ -426,6 +426,58 @@ class HTMLSlideGenerator:
             print(f"   rembg failed: {e}")
             return None
 
+    def _remove_bg_openai(self, path: str) -> Optional[Image.Image]:
+        """
+        Optional AI background removal using OpenAI images.edit.
+        Safe to call even if SDK or key is missing.
+        """
+        try:
+            from openai import OpenAI
+        except Exception:
+            # SDK not installed
+            return None
+
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            # Try Config if available
+            try:
+                from config import Config
+                api_key = getattr(Config, "OPENAI_API_KEY", None)
+            except Exception:
+                api_key = None
+        if not api_key:
+            return None
+
+        try:
+            client = OpenAI(api_key=api_key)
+            with open(path, "rb") as f:
+                image_bytes = f.read()
+
+            # Use the safer gpt-image-1 edit endpoint; if unavailable, will be caught.
+            resp = client.images.edit(
+                model="gpt-image-1",
+                image=image_bytes,
+                prompt="Remove the background; return transparent PNG of the person.",
+                size="1024x1024",
+                output_format="png",
+            )
+
+            if not resp or not getattr(resp, "data", None):
+                return None
+
+            out_b64 = resp.data[0].b64_json
+            if not out_b64:
+                return None
+
+            import base64
+            out_bytes = base64.b64decode(out_b64)
+            out_img = Image.open(io.BytesIO(out_bytes)).convert("RGBA")
+            out_img.load()
+            return out_img
+        except Exception as e:
+            print(f"   OpenAI bg removal failed: {e}")
+            return None
+
     def _darken_edges(self, img: Image.Image) -> Image.Image:
         """
         Gently darkens only semi-transparent edge pixels to reduce white halo.
@@ -604,6 +656,14 @@ class HTMLSlideGenerator:
                         return api_img
             except Exception as e:
                 print(f"   API removal failed: {e}")
+
+        # 1b) OpenAI images.edit (optional, if key + SDK available)
+        openai_img = self._remove_bg_openai(path)
+        if openai_img is not None:
+            o, t, ma = self._alpha_stats(openai_img)
+            print(f"   OpenAI alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
+            if o > 0.10 and t > 0.10:
+                return openai_img
 
         # 2) local rembg
         rembg_img = self._remove_bg_rembg(img)
