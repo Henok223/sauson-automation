@@ -6,7 +6,7 @@ Supports both PDF and image templates (JPG, PNG, etc.)
 import os
 from typing import Dict, Optional
 import io
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageEnhance
 import hashlib
 import img2pdf
 from collections import Counter
@@ -400,19 +400,43 @@ class HTMLSlideGenerator:
 
     def _remove_bg_rembg(self, rgba_img: Image.Image) -> Optional[Image.Image]:
         """
-        Local ML segmentation fallback (rembg / U2Net). Requires: pip install rembg onnxruntime
+        Local ML segmentation using rembg with Alpha Matting enabled for better hair details.
+        Requires: pip install rembg onnxruntime
         """
         try:
-            from rembg import remove
+            from rembg import remove, new_session
+
             buf = io.BytesIO()
             rgba_img.save(buf, format="PNG")
-            out = remove(buf.getvalue())
+            input_data = buf.getvalue()
+
+            # Alpha matting for higher-quality edges; erode a bit to cut halos
+            out = remove(
+                input_data,
+                alpha_matting=True,
+                alpha_matting_foreground_threshold=240,
+                alpha_matting_background_threshold=10,
+                alpha_matting_erode_size=10,
+            )
+
             out_img = Image.open(io.BytesIO(out)).convert("RGBA")
             out_img.load()
             return out_img
         except Exception as e:
             print(f"   rembg failed: {e}")
             return None
+
+    def _refine_edges(self, img: Image.Image, erode_size: int = 3, blur_radius: float = 1.0) -> Image.Image:
+        """
+        Shrinks the alpha mask (erode) to remove halos, then softens the edge.
+        """
+        r, g, b, a = img.split()
+        if erode_size > 0:
+            a = a.filter(ImageFilter.MinFilter(erode_size))
+        if blur_radius > 0:
+            a = a.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        img.putalpha(a)
+        return img
 
     def _remove_bg_best_effort(self, path: str, use_api: bool) -> Image.Image:
         """
@@ -1223,15 +1247,16 @@ class HTMLSlideGenerator:
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
+                        # 1) Remove background with best effort
                         img = self._remove_bg_best_effort(path, use_api_removal)
 
-                        # Tiny edge soften after we have a good alpha
-                        a = img.split()[-1].filter(ImageFilter.GaussianBlur(radius=0.6))
-                        img.putalpha(a)
+                        # 2) Refine edges: erode mask slightly, then soften
+                        img = self._refine_edges(img, erode_size=3, blur_radius=1.0)
 
-                        # Convert to greyscale while preserving alpha
+                        # 3) Convert to greyscale while preserving refined alpha; boost contrast a bit
                         r, g, b, a = img.split()
                         gray = img.convert('L')
+                        gray = ImageEnhance.Contrast(gray).enhance(1.1)
                         img = Image.merge('RGBA', (gray, gray, gray, a))
                         return img
                     except Exception as e:
