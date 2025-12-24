@@ -553,42 +553,58 @@ def handle_onboarding():
                         print(f"⚠️  Could not check for existing slides: {e}")
                         # Continue with creating new slides
                 
-                # Step 6: Delete old Google Drive file if it exists
-                if existing_slides and existing_google_drive_link:
-                    try:
-                        # Only try to delete if we have Google Drive credentials
-                        if Config.GOOGLE_DRIVE_CREDENTIALS_JSON or os.path.exists("token.json"):
-                            drive = GoogleDriveIntegration()
-                            old_file_id = drive.extract_file_id_from_url(existing_google_drive_link)
-                            if old_file_id:
-                                print(f"🗑️  Deleting old Google Drive file: {old_file_id}")
-                                drive.delete_file(old_file_id)
-                            else:
-                                print(f"⚠️  Could not extract file ID from URL: {existing_google_drive_link}")
-                        else:
-                            print("⚠️  Google Drive credentials not configured, skipping deletion")
-                    except Exception as e:
-                        print(f"⚠️  Error deleting old Google Drive file: {e}")
-                        import traceback
-                        traceback.print_exc()
-                        # Continue anyway - we'll upload new file
-                
-                # Step 7: Upload PDF to Google Drive
-                print("Uploading PDF to Google Drive...")
-                # Define filename before both uploads so it's available for both
+                # Step 6/7: Upload or append PDF to Google Drive (preserve DocSend link)
+                print("Uploading PDF to Google Drive (append/overwrite if existing)...")
                 filename = f"{company_data.get('name', 'slide').replace(' ', '_')}_slide.pdf"
                 google_drive_link = None
                 try:
                     drive = GoogleDriveIntegration()
-                    google_drive_link = drive.upload_pdf(
-                        slide_pdf_bytes,
-                        filename,
-                        folder_id=Config.GOOGLE_DRIVE_FOLDER_ID
-                    )
-                    results["google_drive_link"] = google_drive_link
-                    if existing_slides:
-                        print(f"✓ Updated Google Drive slide: {google_drive_link}")
+                    if existing_slides and existing_google_drive_link:
+                        old_file_id = drive.extract_file_id_from_url(existing_google_drive_link)
+                        if old_file_id:
+                            try:
+                                print("   Downloading existing Drive PDF to append...")
+                                existing_bytes = drive.download_file(old_file_id)
+                                print("   Appending new slide(s) to existing PDF...")
+                                writer = PdfWriter()
+                                old_reader = PdfReader(io.BytesIO(existing_bytes))
+                                new_reader = PdfReader(io.BytesIO(slide_pdf_bytes))
+                                for p in old_reader.pages:
+                                    writer.add_page(p)
+                                for p in new_reader.pages:
+                                    writer.add_page(p)
+                                merged_buf = io.BytesIO()
+                                writer.write(merged_buf)
+                                merged_buf.seek(0)
+                                merged_bytes = merged_buf.read()
+                                google_drive_link = drive.overwrite_pdf(old_file_id, merged_bytes)
+                                results["google_drive_link"] = google_drive_link
+                                print(f"✓ Overwrote existing Drive PDF (DocSend-friendly): {google_drive_link}")
+                            except Exception as e:
+                                print(f"⚠️  Append/overwrite failed, uploading new file instead: {e}")
+                                google_drive_link = drive.upload_pdf(
+                                    slide_pdf_bytes,
+                                    filename,
+                                    folder_id=Config.GOOGLE_DRIVE_FOLDER_ID
+                                )
+                                results["google_drive_link"] = google_drive_link
+                                print(f"✓ Uploaded new Drive PDF (fallback): {google_drive_link}")
+                        else:
+                            print(f"⚠️  Could not extract file ID from URL: {existing_google_drive_link}, uploading new file")
+                            google_drive_link = drive.upload_pdf(
+                                slide_pdf_bytes,
+                                filename,
+                                folder_id=Config.GOOGLE_DRIVE_FOLDER_ID
+                            )
+                            results["google_drive_link"] = google_drive_link
+                            print(f"✓ Uploaded new Drive PDF: {google_drive_link}")
                     else:
+                        google_drive_link = drive.upload_pdf(
+                            slide_pdf_bytes,
+                            filename,
+                            folder_id=Config.GOOGLE_DRIVE_FOLDER_ID
+                        )
+                        results["google_drive_link"] = google_drive_link
                         print(f"✓ Uploaded to Google Drive: {google_drive_link}")
                 except Exception as e:
                     print(f"Warning: Google Drive upload failed: {e}")

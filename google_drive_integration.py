@@ -8,7 +8,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
 from googleapiclient.errors import HttpError
 import os
 import json
@@ -162,6 +162,41 @@ class GoogleDriveIntegration:
             
         except HttpError as error:
             raise Exception(f"Google Drive upload error: {error}")
+
+    def download_file(self, file_id: str) -> bytes:
+        """
+        Download a file from Google Drive by file ID and return bytes.
+        """
+        if not self.service:
+            raise ValueError("Google Drive service not initialized")
+        try:
+            request = self.service.files().get_media(fileId=file_id)
+            buf = io.BytesIO()
+            downloader = MediaIoBaseDownload(buf, request)
+            done = False
+            while not done:
+                status, done = downloader.next_chunk()
+            buf.seek(0)
+            return buf.read()
+        except HttpError as error:
+            raise Exception(f"Google Drive download error: {error}")
+
+    def overwrite_pdf(self, file_id: str, pdf_bytes: bytes) -> str:
+        """
+        Overwrite an existing PDF file by file ID. Returns the webViewLink.
+        """
+        if not self.service:
+            raise ValueError("Google Drive service not initialized")
+        try:
+            media = MediaIoBaseUpload(io.BytesIO(pdf_bytes), mimetype='application/pdf', resumable=True)
+            self.service.files().update(fileId=file_id, media_body=media, fields='id, webViewLink, webContentLink').execute()
+
+            # Re-fetch links
+            file = self.service.files().get(fileId=file_id, fields='webViewLink, webContentLink').execute()
+            link = file.get('webViewLink') or file.get('webContentLink') or f"https://drive.google.com/file/d/{file_id}/view"
+            return link
+        except HttpError as error:
+            raise Exception(f"Google Drive overwrite error: {error}")
     
     def delete_file(self, file_id: str) -> bool:
         """
