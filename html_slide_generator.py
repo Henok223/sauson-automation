@@ -1442,13 +1442,28 @@ class HTMLSlideGenerator:
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
-                        # Minimal background removal: rembg only (if available)
-                        orig = Image.open(path).convert("RGBA")
-                        orig.load()
-                        img = self._remove_bg_rembg(orig) or orig
+                        # 1) Best effort pipeline (API -> OpenAI -> rembg -> floodfill)
+                        img = self._remove_bg_best_effort(path, use_api=use_api_removal)
 
-                        # Optional: grayscale while preserving alpha
+                        # 2) Clean mask and edges
+                        img = self._fix_alpha_mask(img, a_min=8)
+                        img = self._refine_edges(img, erode_size=3, blur_radius=1.0)
+                        img = self._darken_edges(img)
+
+                        # 3) Grayscale while preserving alpha
                         img = self._to_grayscale_preserve_alpha(img)
+
+                        # 4) If transparency is still weak, force a gray flood-fill fallback
+                        o, t, ma = self._alpha_stats(img)
+                        if t < 0.05:
+                            print("   BG removal weak; forcing gray floodfill fallback")
+                            orig = Image.open(path).convert("RGBA")
+                            orig.load()
+                            if max(orig.size) > 1500:
+                                orig.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+                            img = self._remove_background_gray(orig, tol=40, feather=1)
+                            img = self._to_grayscale_preserve_alpha(img)
+
                         return img
                     except Exception as e:
                         print(f"Warning: failed headshot {path}: {e}")
