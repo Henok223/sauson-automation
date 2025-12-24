@@ -360,7 +360,8 @@ class HTMLSlideGenerator:
 
             return bg_mask
 
-        tol_candidates = [8, 10, 12, 14, 16, 18]
+        # More aggressive tolerance range for studio backgrounds (gray walls, etc.)
+        tol_candidates = [15, 20, 25, 30, 35, 40, 50]
         best_mask = None
         best_score = None
         best_t = tol_candidates[0]
@@ -368,12 +369,12 @@ class HTMLSlideGenerator:
         for t in tol_candidates:
             mask = flood(t)
             removed = mask.mean()
-            score = abs(removed - 0.30)  # target ~30% removal
+            score = abs(removed - 0.35)  # target ~35% removal (more aggressive)
             if best_score is None or score < best_score:
                 best_score = score
                 best_mask = mask
                 best_t = t
-            if 0.08 <= removed <= 0.80:
+            if 0.15 <= removed <= 0.70:
                 break
 
         print(f"   Gray BG removal: tol={best_t}, removed={best_mask.mean():.1%}")
@@ -512,8 +513,8 @@ class HTMLSlideGenerator:
             if o > 0.10 and t > 0.10:
                 return rembg_img
 
-        # 3) Last resort: conservative flood-fill (no feather)
-        ff = self._remove_background_gray(img, tol=10, feather=0)
+        # 3) Last resort: aggressive flood-fill for studio backgrounds
+        ff = self._remove_background_gray(img, tol=30, feather=1)
         o, t, ma = self._alpha_stats(ff)
         print(f"   floodfill alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
         return ff
@@ -1282,32 +1283,37 @@ class HTMLSlideGenerator:
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
-                        # 1. Remove Background
+                        # 1. Remove Background (aggressive)
                         img = self._remove_bg_best_effort(path, use_api_removal)
 
-                        # 2. Refine edges (light erode + soften)
+                        # 2. Check if background removal worked; if not, try again more aggressively
+                        opaque, transparent, mean_a = self._alpha_stats(img)
+                        if transparent < 0.15:
+                            print(f"   Background removal insufficient (transp={transparent:.2f}), retrying with higher tolerance")
+                            # Load original and try more aggressive removal
+                            orig = Image.open(path).convert("RGBA")
+                            orig.load()
+                            if max(orig.size) > 1500:
+                                orig.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
+                            img = self._remove_background_gray(orig, tol=45, feather=1)
+
+                        # 3. Refine edges (light erode + soften)
                         img = self._refine_edges(img, erode_size=1, blur_radius=0.8)
 
-                        # 3. Darken semi-transparent edges to kill white halo
+                        # 4. Darken semi-transparent edges to kill white halo
                         img = self._darken_edges(img)
 
-                        # 4. Convert to greyscale while preserving refined alpha; boost contrast slightly
+                        # 5. Convert to greyscale while preserving refined alpha; boost contrast slightly
                         r, g, b, a = img.split()
                         gray = img.convert('L')
                         gray = ImageEnhance.Contrast(gray).enhance(1.1)
                         img = Image.merge('RGBA', (gray, gray, gray, a))
 
-                        # 5. Safety net: if alpha got wiped, fall back to original image (no removal)
-                        opaque, transparent, mean_a = self._alpha_stats(img)
-                        if opaque < 0.10:
-                            print(f"   Warning: headshot alpha too low (opaque={opaque:.2f}), falling back to original image")
-                            fallback_img = self._fallback_original_headshot(path)
-                            if fallback_img:
-                                img = fallback_img
-
                         return img
                     except Exception as e:
                         print(f"Warning: failed headshot {path}: {e}")
+                        import traceback
+                        traceback.print_exc()
                         return None
 
                 imgs = [load_process_headshot(p) for p in headshot_paths[:2]]
