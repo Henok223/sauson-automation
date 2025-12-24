@@ -401,8 +401,7 @@ class HTMLSlideGenerator:
 
     def _remove_bg_rembg(self, rgba_img: Image.Image) -> Optional[Image.Image]:
         """
-        Local ML segmentation using rembg.
-        Alpha matting enabled with conservative settings to avoid holes in subject.
+        Local ML segmentation using rembg (minimal, no post-processing).
         """
         try:
             from rembg import remove
@@ -411,13 +410,7 @@ class HTMLSlideGenerator:
             rgba_img.save(buf, format="PNG")
             input_data = buf.getvalue()
 
-            out = remove(
-                input_data,
-                alpha_matting=True,
-                alpha_matting_foreground_threshold=200,  # was 240 (too aggressive)
-                alpha_matting_background_threshold=10,
-                alpha_matting_erode_size=2,              # small erode is safe
-            )
+            out = remove(input_data)
 
             out_img = Image.open(io.BytesIO(out)).convert("RGBA")
             out_img.load()
@@ -425,6 +418,14 @@ class HTMLSlideGenerator:
         except Exception as e:
             print(f"   rembg failed: {e}")
             return None
+
+    def _to_grayscale_preserve_alpha(self, img: Image.Image) -> Image.Image:
+        """
+        Convert to grayscale while preserving alpha channel.
+        """
+        r, g, b, a = img.split()
+        gray = img.convert("L")
+        return Image.merge("RGBA", (gray, gray, gray, a))
 
     def _remove_bg_openai(self, path: str) -> Optional[Image.Image]:
         """
@@ -1441,34 +1442,13 @@ class HTMLSlideGenerator:
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
-                        # 1. Remove Background
-                        img = self._remove_bg_best_effort(path, use_api_removal)
+                        # Minimal background removal: rembg only (if available)
+                        orig = Image.open(path).convert("RGBA")
+                        orig.load()
+                        img = self._remove_bg_rembg(orig) or orig
 
-                        # 2. Check if background removal worked; if not, try again more aggressively
-                        opaque, transparent, mean_a = self._alpha_stats(img)
-                        if transparent < 0.20:
-                            print(f"   Background removal insufficient (transp={transparent:.2f}), retrying with higher tolerance")
-                            orig = Image.open(path).convert("RGBA")
-                            orig.load()
-                            if max(orig.size) > 1500:
-                                orig.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
-                            img = self._remove_background_gray(orig, tol=55, feather=1)
-
-                        # 3. Clean mask: keep largest blob, fill holes, harden alpha
-                        img = self._fix_alpha_mask(img, a_min=8)
-
-                        # 4. Light edge soften (small erode to remove fringe)
-                        img = self._refine_edges(img, erode_size=1, blur_radius=0.8)
-
-                        # 5. ONE pass to reduce halo (don't overdo it)
-                        img = self._darken_edges(img)
-
-                        # 6. Convert to greyscale while preserving refined alpha; boost contrast slightly
-                        r, g, b, a = img.split()
-                        gray = img.convert('L')
-                        gray = ImageEnhance.Contrast(gray).enhance(1.15)
-                        img = Image.merge('RGBA', (gray, gray, gray, a))
-
+                        # Optional: grayscale while preserving alpha
+                        img = self._to_grayscale_preserve_alpha(img)
                         return img
                     except Exception as e:
                         print(f"Warning: failed headshot {path}: {e}")
