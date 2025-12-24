@@ -310,7 +310,7 @@ class HTMLSlideGenerator:
         """
         try:
             import numpy as np
-        except ImportError:
+            except ImportError:
             print("   Warning: numpy not available for gray background removal")
             return img.convert("RGBA")
 
@@ -390,6 +390,74 @@ class HTMLSlideGenerator:
             out_img.putalpha(a)
 
         return out_img
+
+    def _alpha_stats(self, im: Image.Image):
+        """Return (opaque_frac, transparent_frac, mean_alpha)."""
+        a = np.array(im.split()[-1], dtype=np.uint8)
+        opaque = (a > 200).mean()
+        transparent = (a < 10).mean()
+        return float(opaque), float(transparent), float(a.mean())
+
+    def _remove_bg_rembg(self, rgba_img: Image.Image) -> Optional[Image.Image]:
+        """
+        Local ML segmentation fallback (rembg / U2Net). Requires: pip install rembg onnxruntime
+        """
+        try:
+            from rembg import remove
+            buf = io.BytesIO()
+            rgba_img.save(buf, format="PNG")
+            out = remove(buf.getvalue())
+            out_img = Image.open(io.BytesIO(out)).convert("RGBA")
+            out_img.load()
+            return out_img
+        except Exception as e:
+            print(f"   rembg failed: {e}")
+            return None
+
+    def _remove_bg_best_effort(self, path: str, use_api: bool) -> Image.Image:
+        """
+        Best-effort background removal:
+        1) remove.bg API if available
+        2) local rembg segmentation
+        3) conservative grayscale flood-fill as last resort
+        """
+        img = Image.open(path).convert("RGBA")
+        img.load()
+
+        # Downscale before anything expensive
+        max_size = 1500
+        if max(img.size) > max_size:
+            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+        # 1) remove.bg API (if available)
+        if use_api:
+            try:
+                from image_processor import ImageProcessor
+                print(f"   Removing background via API for {path} ...")
+                b = ImageProcessor.remove_background(path)
+                if b:
+                    api_img = Image.open(io.BytesIO(b)).convert("RGBA")
+                    api_img.load()
+                    o, t, ma = self._alpha_stats(api_img)
+                    print(f"   API alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
+                    if o > 0.10 and t > 0.10:
+                        return api_img
+            except Exception as e:
+                print(f"   API removal failed: {e}")
+
+        # 2) local rembg
+        rembg_img = self._remove_bg_rembg(img)
+        if rembg_img is not None:
+            o, t, ma = self._alpha_stats(rembg_img)
+            print(f"   rembg alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
+            if o > 0.10 and t > 0.10:
+                return rembg_img
+
+        # 3) Last resort: conservative flood-fill (no feather)
+        ff = self._remove_background_gray(img, tol=10, feather=0)
+        o, t, ma = self._alpha_stats(ff)
+        print(f"   floodfill alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
+        return ff
     
     def _detect_orange_us_bbox(self, img: Image.Image):
         """
@@ -887,7 +955,7 @@ class HTMLSlideGenerator:
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # No need to resize again - thumbnail already resized it, just ensure exact size if needed
             if logo_img.size != (logo_size - 20, logo_size - 20):
-                logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
+            logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
             
             # Apply circular mask to logo
             logo_masked = Image.new('RGBA', (logo_size, logo_size), (0, 0, 0, 0))
@@ -1155,54 +1223,18 @@ class HTMLSlideGenerator:
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
-                        img = Image.open(path)
-                        img.load()
-                        img = img.convert('RGBA')
+                        img = self._remove_bg_best_effort(path, use_api_removal)
 
-                        # Downscale before heavy ops
-                        max_size = 1500
-                        if max(img.size) > max_size:
-                            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-
-                        # Optional API removal
-                        if use_api_removal:
-                            try:
-                                print(f"   Removing background from headshot via API for {path} ...")
-                                headshot_no_bg_bytes = ImageProcessor.remove_background(path)
-                                if headshot_no_bg_bytes and len(headshot_no_bg_bytes) > 0:
-                                    api_img = Image.open(io.BytesIO(headshot_no_bg_bytes))
-                                    api_img.load()
-                                    api_img = api_img.convert('RGBA')
-                                    img = api_img
-                                    print(f"   ✓ Background removed via API for {path}")
-                            except Exception as e:
-                                print(f"   Warning: API background removal failed for {path}: {e}")
-
-                        # If API already gave transparency, skip manual removal
-                        def corners_are_transparent(im: Image.Image, a_thresh=10) -> bool:
-                            a = np.array(im.split()[-1])
-                            Hc, Wc = a.shape
-                            cs = max(10, min(Hc, Wc) // 18)
-                            corners = np.concatenate([
-                                a[:cs, :cs].ravel(),
-                                a[:cs, -cs:].ravel(),
-                                a[-cs:, :cs].ravel(),
-                                a[-cs:, -cs:].ravel(),
-                            ])
-                            return corners.mean() < a_thresh
-
-                        if not corners_are_transparent(img):
-                            img = self._remove_background_gray(img, tol=12, feather=1)
+                        # Tiny edge soften after we have a good alpha
+                        a = img.split()[-1].filter(ImageFilter.GaussianBlur(radius=0.6))
+                        img.putalpha(a)
 
                         # Convert to greyscale while preserving alpha
-                        if img.mode == 'RGBA':
-                            r, g, b, a = img.split()
-                            gray = img.convert('L')
-                            img = Image.merge('RGBA', (gray, gray, gray, a))
-                        else:
-                            img = img.convert('RGBA')
+                        r, g, b, a = img.split()
+                        gray = img.convert('L')
+                        img = Image.merge('RGBA', (gray, gray, gray, a))
                         return img
-                    except Exception as e:
+                except Exception as e:
                         print(f"Warning: failed headshot {path}: {e}")
                         return None
 
@@ -1364,7 +1396,7 @@ class HTMLSlideGenerator:
                 with open(tmp_file.name, 'rb') as f:
                     img_bytes = f.read()
                 pdf_bytes = img2pdf.convert(img_bytes)
-                return pdf_bytes
+        return pdf_bytes
             finally:
                 # Clean up temporary file
                 try:
@@ -1488,7 +1520,7 @@ class HTMLSlideGenerator:
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # Only resize if thumbnail didn't produce exact size
             if logo_img.size != (logo_size_px - 20, logo_size_px - 20):
-                logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
+            logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
             logo_masked = Image.new('RGBA', (logo_size_px, logo_size_px), (0, 0, 0, 0))
             logo_masked.paste(logo_img, (10, 10), logo_img)
             logo_masked.putalpha(circle_mask)
