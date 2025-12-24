@@ -402,7 +402,7 @@ class HTMLSlideGenerator:
     def _remove_bg_rembg(self, rgba_img: Image.Image) -> Optional[Image.Image]:
         """
         Local ML segmentation using rembg.
-        Alpha matting enabled; no aggressive erosion (handled in post).
+        Alpha matting enabled with conservative settings to avoid holes in subject.
         """
         try:
             from rembg import remove
@@ -414,9 +414,9 @@ class HTMLSlideGenerator:
             out = remove(
                 input_data,
                 alpha_matting=True,
-                alpha_matting_foreground_threshold=240,
+                alpha_matting_foreground_threshold=200,  # was 240 (too aggressive)
                 alpha_matting_background_threshold=10,
-                alpha_matting_erode_size=0,  # preserve detail; refine later
+                alpha_matting_erode_size=2,              # small erode is safe
             )
 
             out_img = Image.open(io.BytesIO(out)).convert("RGBA")
@@ -449,6 +449,89 @@ class HTMLSlideGenerator:
         out = arr.copy()
         out[..., :3] = rgb.astype(np.uint8)
         return Image.fromarray(out, 'RGBA')
+
+    def _fix_alpha_mask(self, img: Image.Image, a_min: int = 25) -> Image.Image:
+        """
+        1) Convert alpha to a binary-ish fg mask using a_min
+        2) Keep only the largest connected component (removes speckles)
+        3) Fill holes inside the subject
+        4) Rebuild alpha (and slightly harden it)
+        """
+        arr = np.array(img.convert("RGBA"))
+        a = arr[..., 3].astype(np.uint8)
+
+        H, W = a.shape
+        fg = (a > a_min)
+
+        # ---- keep largest connected component (8-neigh) ----
+        visited = np.zeros((H, W), dtype=bool)
+        best_coords = None
+        best_size = 0
+
+        from collections import deque
+        for y0 in range(H):
+            for x0 in range(W):
+                if fg[y0, x0] and not visited[y0, x0]:
+                    q = deque([(y0, x0)])
+                    visited[y0, x0] = True
+                    coords = []
+                    while q:
+                        y, x = q.popleft()
+                        coords.append((y, x))
+                        for dy in (-1, 0, 1):
+                            for dx in (-1, 0, 1):
+                                if dy == 0 and dx == 0:
+                                    continue
+                                ny, nx = y + dy, x + dx
+                                if 0 <= ny < H and 0 <= nx < W and fg[ny, nx] and not visited[ny, nx]:
+                                    visited[ny, nx] = True
+                                    q.append((ny, nx))
+                    if len(coords) > best_size:
+                        best_size = len(coords)
+                        best_coords = coords
+
+        keep = np.zeros((H, W), dtype=bool)
+        if best_coords:
+            ys, xs = zip(*best_coords)
+            keep[np.array(ys), np.array(xs)] = True
+
+        # ---- fill holes: background regions NOT connected to border are holes ----
+        bg = ~keep
+        hole = bg.copy()
+        q = deque()
+
+        def push(y, x):
+            if 0 <= y < H and 0 <= x < W and hole[y, x]:
+                hole[y, x] = False
+                q.append((y, x))
+
+        # seed all borders (these are "real background")
+        for x in range(W):
+            push(0, x); push(H - 1, x)
+        for y in range(H):
+            push(y, 0); push(y, W - 1)
+
+        while q:
+            y, x = q.popleft()
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    push(y + dy, x + dx)
+
+        # after flood: hole==True are enclosed background areas => fill them
+        filled = keep | hole
+
+        # ---- rebuild alpha: keep original alpha but zero outside, then harden ----
+        new_a = a.copy()
+        new_a[~filled] = 0
+
+        # harden alpha so it doesn't stay semi-transparent inside the face
+        # (simple "levels" curve)
+        new_a = np.clip((new_a.astype(np.int16) - 20) * 255 // (255 - 20), 0, 255).astype(np.uint8)
+
+        arr[..., 3] = new_a
+        return Image.fromarray(arr, "RGBA")
 
     def _fallback_original_headshot(self, path: str, max_size: int = 1500) -> Optional[Image.Image]:
         """Return a safe grayscale RGBA version of the original image (no bg removal)."""
@@ -1285,28 +1368,29 @@ class HTMLSlideGenerator:
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
-                        # 1. Remove Background (aggressive)
+                        # 1. Remove Background
                         img = self._remove_bg_best_effort(path, use_api_removal)
 
                         # 2. Check if background removal worked; if not, try again more aggressively
                         opaque, transparent, mean_a = self._alpha_stats(img)
                         if transparent < 0.20:
                             print(f"   Background removal insufficient (transp={transparent:.2f}), retrying with higher tolerance")
-                            # Load original and try more aggressive removal
                             orig = Image.open(path).convert("RGBA")
                             orig.load()
                             if max(orig.size) > 1500:
                                 orig.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
                             img = self._remove_background_gray(orig, tol=55, feather=1)
 
-                        # 3. Refine edges (stronger erode to cut off white fringe)
-                        img = self._refine_edges(img, erode_size=3, blur_radius=1.0)
+                        # 3. Clean mask: keep largest blob, fill holes, harden alpha
+                        img = self._fix_alpha_mask(img, a_min=25)
 
-                        # 4. Darken semi-transparent edges to kill white halo (run twice for stronger effect)
-                        img = self._darken_edges(img)
+                        # 4. Light edge soften (small erode to remove fringe)
+                        img = self._refine_edges(img, erode_size=1, blur_radius=0.8)
+
+                        # 5. ONE pass to reduce halo (don't overdo it)
                         img = self._darken_edges(img)
 
-                        # 5. Convert to greyscale while preserving refined alpha; boost contrast slightly
+                        # 6. Convert to greyscale while preserving refined alpha; boost contrast slightly
                         r, g, b, a = img.split()
                         gray = img.convert('L')
                         gray = ImageEnhance.Contrast(gray).enhance(1.15)
