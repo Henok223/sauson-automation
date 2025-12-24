@@ -201,26 +201,42 @@ class GoogleDriveIntegration:
     def find_file_id_by_name(self, filename: str, parent_folder_id: Optional[str] = None) -> Optional[str]:
         """
         Find the first file ID matching a given name (optionally within a folder).
+        If not found in the folder, falls back to global search.
         """
         if not self.service:
             raise ValueError("Google Drive service not initialized")
-        q_parts = [f"name = '{filename}'", "mimeType = 'application/pdf'"]
-        if parent_folder_id:
-            q_parts.append(f"'{parent_folder_id}' in parents")
-        query = " and ".join(q_parts)
-        try:
+
+        def _search(q):
             resp = self.service.files().list(
-                q=query,
+                q=q,
                 spaces='drive',
                 fields="files(id, name)",
                 pageSize=1
             ).execute()
             files = resp.get("files", [])
-            if files:
-                return files[0]["id"]
-            return None
+            return files[0]["id"] if files else None
+
+        # First, try within the parent (if provided)
+        query_parts = [f"name = '{filename}'", "mimeType = 'application/pdf'"]
+        if parent_folder_id:
+            query_parts.append(f"'{parent_folder_id}' in parents")
+        query = " and ".join(query_parts)
+        try:
+            file_id = _search(query)
+            if file_id:
+                return file_id
         except HttpError as error:
-            print(f"Warning: Google Drive search error: {error}")
+            print(f"Warning: Google Drive search error (scoped): {error}")
+
+        # Fallback: global search by name
+        try:
+            global_query = f"name = '{filename}' and mimeType = 'application/pdf'"
+            file_id = _search(global_query)
+            if file_id:
+                print(f"   Found '{filename}' via global search (outside folder).")
+            return file_id
+        except HttpError as error:
+            print(f"Warning: Google Drive search error (global): {error}")
             return None
     
     def delete_file(self, file_id: str) -> bool:
