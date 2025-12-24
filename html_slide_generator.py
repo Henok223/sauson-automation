@@ -310,7 +310,7 @@ class HTMLSlideGenerator:
         """
         try:
             import numpy as np
-        except ImportError:
+            except ImportError:
             print("   Warning: numpy not available for gray background removal")
             return img.convert("RGBA")
 
@@ -429,8 +429,8 @@ class HTMLSlideGenerator:
         """
         Aggressively darkens semi-transparent pixels to remove 'white halo' artifacts.
         """
-        try:
-            import numpy as np
+            try:
+                import numpy as np
         except ImportError:
             return img
 
@@ -446,6 +446,20 @@ class HTMLSlideGenerator:
         out = arr.copy()
         out[..., :3] = rgb.astype(np.uint8)
         return Image.fromarray(out, 'RGBA')
+
+    def _fallback_original_headshot(self, path: str, max_size: int = 1500) -> Optional[Image.Image]:
+        """Return a safe grayscale RGBA version of the original image (no bg removal)."""
+        try:
+            img = Image.open(path).convert("RGBA")
+            img.load()
+            if max(img.size) > max_size:
+                img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+            r, g, b, a = img.split()
+            gray = img.convert("L")
+            return Image.merge("RGBA", (gray, gray, gray, a))
+            except Exception as e:
+            print(f"Warning: fallback original headshot failed: {e}")
+            return None
 
     def _refine_edges(self, img: Image.Image, erode_size: int = 3, blur_radius: float = 1.0) -> Image.Image:
         """
@@ -487,7 +501,7 @@ class HTMLSlideGenerator:
                     print(f"   API alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
                     if o > 0.10 and t > 0.10:
                         return api_img
-            except Exception as e:
+        except Exception as e:
                 print(f"   API removal failed: {e}")
 
         # 2) local rembg
@@ -1000,7 +1014,7 @@ class HTMLSlideGenerator:
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # No need to resize again - thumbnail already resized it, just ensure exact size if needed
             if logo_img.size != (logo_size - 20, logo_size - 20):
-                logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
+            logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
             
             # Apply circular mask to logo
             logo_masked = Image.new('RGBA', (logo_size, logo_size), (0, 0, 0, 0))
@@ -1271,8 +1285,8 @@ class HTMLSlideGenerator:
                         # 1. Remove Background
                         img = self._remove_bg_best_effort(path, use_api_removal)
 
-                        # 2. Refine edges (slight erode + soften)
-                        img = self._refine_edges(img, erode_size=2, blur_radius=1.0)
+                        # 2. Refine edges (light erode + soften)
+                        img = self._refine_edges(img, erode_size=1, blur_radius=0.8)
 
                         # 3. Darken semi-transparent edges to kill white halo
                         img = self._darken_edges(img)
@@ -1282,6 +1296,15 @@ class HTMLSlideGenerator:
                         gray = img.convert('L')
                         gray = ImageEnhance.Contrast(gray).enhance(1.1)
                         img = Image.merge('RGBA', (gray, gray, gray, a))
+
+                        # 5. Safety net: if alpha got wiped, fall back to original image (no removal)
+                        opaque, transparent, mean_a = self._alpha_stats(img)
+                        if opaque < 0.10:
+                            print(f"   Warning: headshot alpha too low (opaque={opaque:.2f}), falling back to original image")
+                            fallback_img = self._fallback_original_headshot(path)
+                            if fallback_img:
+                                img = fallback_img
+
                         return img
                     except Exception as e:
                         print(f"Warning: failed headshot {path}: {e}")
@@ -1445,7 +1468,7 @@ class HTMLSlideGenerator:
                 with open(tmp_file.name, 'rb') as f:
                     img_bytes = f.read()
                 pdf_bytes = img2pdf.convert(img_bytes)
-                return pdf_bytes
+        return pdf_bytes
             except Exception as e:
                 print(f"Error: {e}")
                 return None
@@ -1572,7 +1595,7 @@ class HTMLSlideGenerator:
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # Only resize if thumbnail didn't produce exact size
             if logo_img.size != (logo_size_px - 20, logo_size_px - 20):
-                logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
+            logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
             logo_masked = Image.new('RGBA', (logo_size_px, logo_size_px), (0, 0, 0, 0))
             logo_masked.paste(logo_img, (10, 10), logo_img)
             logo_masked.putalpha(circle_mask)
