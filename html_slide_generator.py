@@ -639,15 +639,7 @@ class HTMLSlideGenerator:
         if max(img.size) > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
-        # 1) OpenAI images.edit (optional, if key + SDK available) — make this primary
-        openai_img = self._remove_bg_openai(path)
-        if openai_img is not None:
-            o, t, ma = self._alpha_stats(openai_img)
-            print(f"   OpenAI alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
-            if o > 0.10 and t > 0.10:
-                return openai_img
-
-        # 2) remove.bg API (if available)
+        # 1) remove.bg API (if available)
         if use_api:
             try:
                 from image_processor import ImageProcessor
@@ -662,6 +654,14 @@ class HTMLSlideGenerator:
                         return api_img
             except Exception as e:
                 print(f"   API removal failed: {e}")
+
+        # 2) OpenAI images.edit (optional, if key + SDK available) — now a backup
+        openai_img = self._remove_bg_openai(path)
+        if openai_img is not None:
+            o, t, ma = self._alpha_stats(openai_img)
+            print(f"   OpenAI alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
+            if o > 0.10 and t > 0.10:
+                return openai_img
 
         # 3) local rembg
         rembg_img = self._remove_bg_rembg(img)
