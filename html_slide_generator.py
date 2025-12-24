@@ -360,8 +360,8 @@ class HTMLSlideGenerator:
 
             return bg_mask
 
-        # More aggressive tolerance range for studio backgrounds (gray walls, etc.)
-        tol_candidates = [15, 20, 25, 30, 35, 40, 50]
+        # Very aggressive tolerance range for studio backgrounds (gray walls, white walls, etc.)
+        tol_candidates = [20, 30, 40, 50, 60, 70]
         best_mask = None
         best_score = None
         best_t = tol_candidates[0]
@@ -369,12 +369,12 @@ class HTMLSlideGenerator:
         for t in tol_candidates:
             mask = flood(t)
             removed = mask.mean()
-            score = abs(removed - 0.35)  # target ~35% removal (more aggressive)
+            score = abs(removed - 0.40)  # target ~40% removal (very aggressive)
             if best_score is None or score < best_score:
                 best_score = score
                 best_mask = mask
                 best_t = t
-            if 0.15 <= removed <= 0.70:
+            if 0.20 <= removed <= 0.65:
                 break
 
         print(f"   Gray BG removal: tol={best_t}, removed={best_mask.mean():.1%}")
@@ -429,6 +429,7 @@ class HTMLSlideGenerator:
     def _darken_edges(self, img: Image.Image) -> Image.Image:
         """
         Aggressively darkens semi-transparent pixels to remove 'white halo' artifacts.
+        Uses alpha^3 for stronger darkening of fringes.
         """
         try:
             import numpy as np
@@ -439,8 +440,9 @@ class HTMLSlideGenerator:
         rgb = arr[..., :3].astype(float)
         alpha = arr[..., 3].astype(float) / 255.0
 
-        # Darken semi-transparent pixels: alpha^2 pushes fringes into shadow
-        factor = alpha * alpha
+        # Darken semi-transparent pixels: alpha^3 for stronger effect on fringes
+        # This makes pixels with alpha=0.5 become 0.125 brightness (very dark)
+        factor = alpha * alpha * alpha
         factor = np.dstack([factor, factor, factor])
         rgb = rgb * factor
 
@@ -1288,25 +1290,26 @@ class HTMLSlideGenerator:
 
                         # 2. Check if background removal worked; if not, try again more aggressively
                         opaque, transparent, mean_a = self._alpha_stats(img)
-                        if transparent < 0.15:
+                        if transparent < 0.20:
                             print(f"   Background removal insufficient (transp={transparent:.2f}), retrying with higher tolerance")
                             # Load original and try more aggressive removal
                             orig = Image.open(path).convert("RGBA")
                             orig.load()
                             if max(orig.size) > 1500:
                                 orig.thumbnail((1500, 1500), Image.Resampling.LANCZOS)
-                            img = self._remove_background_gray(orig, tol=45, feather=1)
+                            img = self._remove_background_gray(orig, tol=55, feather=1)
 
-                        # 3. Refine edges (light erode + soften)
-                        img = self._refine_edges(img, erode_size=1, blur_radius=0.8)
+                        # 3. Refine edges (stronger erode to cut off white fringe)
+                        img = self._refine_edges(img, erode_size=3, blur_radius=1.0)
 
-                        # 4. Darken semi-transparent edges to kill white halo
+                        # 4. Darken semi-transparent edges to kill white halo (run twice for stronger effect)
+                        img = self._darken_edges(img)
                         img = self._darken_edges(img)
 
                         # 5. Convert to greyscale while preserving refined alpha; boost contrast slightly
                         r, g, b, a = img.split()
                         gray = img.convert('L')
-                        gray = ImageEnhance.Contrast(gray).enhance(1.1)
+                        gray = ImageEnhance.Contrast(gray).enhance(1.15)
                         img = Image.merge('RGBA', (gray, gray, gray, a))
 
                         return img
