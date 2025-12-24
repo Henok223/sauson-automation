@@ -429,8 +429,8 @@ class HTMLSlideGenerator:
         """
         Aggressively darkens semi-transparent pixels to remove 'white halo' artifacts.
         """
-            try:
-                import numpy as np
+        try:
+            import numpy as np
         except ImportError:
             return img
 
