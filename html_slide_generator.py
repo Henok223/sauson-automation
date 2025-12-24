@@ -235,12 +235,15 @@ class HTMLSlideGenerator:
 
         H, W = rgb.shape[:2]
 
-        # Sample background color from border pixels
-        border = np.concatenate([
-            rgb[0, :, :], rgb[-1, :, :],
-            rgb[:, 0, :], rgb[:, -1, :]
+        # Sample background color from CORNERS (more stable than full border)
+        corner_size = max(10, min(H, W) // 20)  # ~5% of image, min 10px
+        corners = np.concatenate([
+            rgb[0:corner_size, 0:corner_size, :].reshape(-1, 3),
+            rgb[0:corner_size, W - corner_size:W, :].reshape(-1, 3),
+            rgb[H - corner_size:H, 0:corner_size, :].reshape(-1, 3),
+            rgb[H - corner_size:H, W - corner_size:W, :].reshape(-1, 3),
         ], axis=0)
-        bg = np.median(border, axis=0).astype(np.int16)
+        bg = np.median(corners, axis=0).astype(np.int16)
 
         # Mask of pixels close to background color
         dist = np.sqrt(((rgb - bg) ** 2).sum(axis=2))
@@ -265,10 +268,11 @@ class HTMLSlideGenerator:
 
         while q:
             y, x = q.popleft()
-            push(y - 1, x)
-            push(y + 1, x)
-            push(y, x - 1)
-            push(y, x + 1)
+            for dy in (-1, 0, 1):
+                for dx in (-1, 0, 1):
+                    if dy == 0 and dx == 0:
+                        continue
+                    push(y + dy, x + dx)
 
         # Remove only border-connected background
         new_alpha = alpha.copy()
@@ -533,6 +537,22 @@ class HTMLSlideGenerator:
         test_img.save('map_calibration_test.png')
         print("\nSaved test image to: map_calibration_test.png")
         print("Check if pins are in correct positions and adjust PAD_L, PAD_R, PAD_T, PAD_B values")
+    
+    def _parse_headshots(self, headshot_path):
+        """
+        Accepts:
+          - single path string
+          - comma-separated string "a.png,b.png"
+          - list/tuple of paths
+        Returns list[str]
+        """
+        if not headshot_path:
+            return []
+        if isinstance(headshot_path, (list, tuple)):
+            return [p for p in headshot_path if p]
+        if isinstance(headshot_path, str) and "," in headshot_path:
+            return [p.strip() for p in headshot_path.split(",") if p.strip()]
+        return [headshot_path]
     
     def _get_city_coordinates(self, city_name: str) -> tuple:
         """
@@ -1008,12 +1028,12 @@ class HTMLSlideGenerator:
                     print(f"Warning: Headshot file is not a valid image: {e}, skipping headshot")
                     headshot_path = None
             
-            # Only process headshot if we have a valid path
-            if not headshot_path:
+            headshot_paths = self._parse_headshots(headshot_path)
+            headshot_paths = [p for p in headshot_paths if p and os.path.exists(p)]
+            if not headshot_paths:
                 print("   Skipping headshot processing (no valid headshot file)")
             else:
-                # Remove background from headshot to make it transparent
-                # ONLY use Remove.bg API if key is set - skip manual removal (too memory-intensive)
+                # Remove background from headshot(s) to make them transparent
                 use_api_removal = False
                 try:
                     from config import Config
@@ -1021,96 +1041,81 @@ class HTMLSlideGenerator:
                         use_api_removal = True
                 except:
                     pass
-                
-                headshot_img = None
-                try:
-                    if not use_api_removal:
-                        print(f"   REMOVEBG_API_KEY not set, skipping background removal (using image as-is)")
-                        headshot_img = Image.open(headshot_path)
-                        headshot_img.load()
-                        max_size = 1500
-                        if max(headshot_img.size) > max_size:
-                            print(f"   Resizing headshot from {headshot_img.size} to max {max_size}px to reduce memory usage")
-                            headshot_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-                        headshot_img = headshot_img.convert('RGBA')
-                    else:
-                        print(f"   Removing background from headshot...")
-                        headshot_no_bg_bytes = ImageProcessor.remove_background(headshot_path)
-                        if not headshot_no_bg_bytes or len(headshot_no_bg_bytes) == 0:
-                            raise ValueError("Background removal returned empty bytes")
-                        headshot_img = Image.open(io.BytesIO(headshot_no_bg_bytes))
-                        headshot_img.load()
-                        headshot_img = headshot_img.convert('RGBA')
-                        print(f"   ✓ Background removed successfully")
-                except Exception as e:
-                    print(f"Warning: Background removal failed: {e}")
-                    import traceback
-                    traceback.print_exc()
-                    # Fallback: use original image as-is (no manual removal)
-                    try:
-                        headshot_img = Image.open(headshot_path)
-                        headshot_img.load()
-                        max_size = 1500
-                        if max(headshot_img.size) > max_size:
-                            print(f"   Resizing headshot from {headshot_img.size} to max {max_size}px to reduce memory usage")
-                            headshot_img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
-                        headshot_img = headshot_img.convert('RGBA')
-                        print(f"   Using original headshot (fallback)")
-                    except Exception as e2:
-                        print(f"Warning: Fallback headshot load failed: {e2}")
-                        headshot_img = None
 
-                # If we still don't have an image, skip headshot paste
-                if not headshot_img:
-                    print("   Skipping headshot paste (no headshot image available after processing)")
-                else:
-                    # Enforce transparent background even without external removal
-                    try:
-                        headshot_img = self._remove_background_manual(headshot_img)
-                    except Exception as e:
-                        print(f"   Warning: fallback background removal failed: {e}")
+                print("   REMOVEBG_API_KEY not set, using manual background removal" if not use_api_removal else "   Using remove.bg API when available")
 
-                    # Convert person to greyscale while preserving transparency
+                # Headshot target box (tuned to match reference slide)
+                headshot_area_width = 820
+                headshot_area_height = 900
+                headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 + 20
+                headshot_area_y = map_area_y + int(map_height * 0.46)
+
+                def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
-                        if headshot_img.mode == 'RGBA':
-                            r, g, b, a = headshot_img.split()
-                            gray = headshot_img.convert('L')
-                            headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
+                        img = Image.open(path)
+                        img.load()
+                        img = img.convert('RGBA')
+
+                        # Downscale before heavy ops
+                        max_size = 1500
+                        if max(img.size) > max_size:
+                            img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
+
+                        # Optional API removal
+                        if use_api_removal:
+                            try:
+                                print(f"   Removing background from headshot via API for {path} ...")
+                                headshot_no_bg_bytes = ImageProcessor.remove_background(path)
+                                if headshot_no_bg_bytes and len(headshot_no_bg_bytes) > 0:
+                                    api_img = Image.open(io.BytesIO(headshot_no_bg_bytes))
+                                    api_img.load()
+                                    api_img = api_img.convert('RGBA')
+                                    img = api_img
+                                    print(f"   ✓ Background removed via API for {path}")
+                            except Exception as e:
+                                print(f"   Warning: API background removal failed for {path}: {e}")
+
+                        # Always run manual cleanup (stronger)
+                        img = self._remove_background_manual(img, tol=55, feather=3)
+
+                        # Convert to greyscale while preserving alpha
+                        if img.mode == 'RGBA':
+                            r, g, b, a = img.split()
+                            gray = img.convert('L')
+                            img = Image.merge('RGBA', (gray, gray, gray, a))
                         else:
-                            headshot_img = headshot_img.convert('RGBA')
-                            r, g, b, a = headshot_img.split()
-                            gray = headshot_img.convert('L')
-                            headshot_img = Image.merge('RGBA', (gray, gray, gray, a))
+                            img = img.convert('RGBA')
+                        return img
                     except Exception as e:
-                        print(f"Warning: Failed to convert headshot to greyscale: {e}")
-                        if headshot_img.mode != 'RGBA':
-                            headshot_img = headshot_img.convert('RGBA')
-                
-                if headshot_img:
-                    # Position headshots below the map, moved to the left
-                    # Use map_area_x, map_area_y, map_width, map_height already detected above
-                    
-                    # Headshot target box (tuned to match reference slide)
-                    headshot_area_width = 720   # tweak 650-820
-                    headshot_area_height = 820   # tweak 760-920
-                    
-                    # Anchor relative to the map bbox so it stays consistent across templates
-                    headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 + 40  # push slightly right
-                    headshot_area_y = map_area_y + int(map_height * 0.52)  # <-- raises it (key!)
-                    
-                    # Resize and paste
-                    headshot_img.thumbnail((headshot_area_width, headshot_area_height), Image.Resampling.LANCZOS)
-                    
-                    # Ensure headshot is RGBA with transparency
-                    if headshot_img.mode != 'RGBA':
-                        headshot_img = headshot_img.convert('RGBA')
-                    
-                    headshot_w, headshot_h = headshot_img.size
-                    paste_x = headshot_area_x + (headshot_area_width - headshot_w) // 2
-                    paste_y = headshot_area_y + (headshot_area_height - headshot_h) // 2
-                    
-                    # Paste with transparency using alpha channel as mask
-                    slide.paste(headshot_img, (paste_x, paste_y), headshot_img.split()[3] if headshot_img.mode == 'RGBA' else headshot_img)
+                        print(f"Warning: failed headshot {path}: {e}")
+                        return None
+
+                imgs = [load_process_headshot(p) for p in headshot_paths[:2]]
+                imgs = [im for im in imgs if im is not None]
+
+                if len(imgs) == 1:
+                    im = imgs[0]
+                    im.thumbnail((headshot_area_width, headshot_area_height), Image.Resampling.LANCZOS)
+                    paste_x = headshot_area_x + (headshot_area_width - im.size[0]) // 2
+                    paste_y = headshot_area_y + (headshot_area_height - im.size[1]) // 2
+                    slide.paste(im, (paste_x, paste_y), im.split()[3])
+                    draw = ImageDraw.Draw(slide)
+                elif len(imgs) == 2:
+                    gap = 30
+                    each_w = (headshot_area_width - gap) // 2
+                    each_h = headshot_area_height
+                    left, right = imgs
+                    left.thumbnail((each_w, each_h), Image.Resampling.LANCZOS)
+                    right.thumbnail((each_w, each_h), Image.Resampling.LANCZOS)
+
+                    base_y = headshot_area_y + headshot_area_height
+                    left_x = headshot_area_x + (each_w - left.size[0]) // 2
+                    right_x = headshot_area_x + each_w + gap + (each_w - right.size[0]) // 2
+                    left_y = base_y - left.size[1]
+                    right_y = base_y - right.size[1]
+
+                    slide.paste(left, (left_x, left_y), left.split()[3])
+                    slide.paste(right, (right_x, right_y), right.split()[3])
                     draw = ImageDraw.Draw(slide)
         except Exception as e:
             print(f"Warning: Could not load headshot: {e}")
@@ -1466,7 +1471,7 @@ class HTMLSlideGenerator:
             headshot_img.load()  # Load fully before save to avoid memory issues
             # Ensure transparent background for PPTX as well
             try:
-                headshot_img = self._remove_background_manual(headshot_img)
+                headshot_img = self._remove_background_manual(headshot_img, tol=55, feather=3)
             except Exception as e:
                 print(f"   Warning: PPTX fallback background removal failed: {e}")
             # Process headshot (background removal already done in PIL code)
@@ -1477,10 +1482,10 @@ class HTMLSlideGenerator:
             # headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50
             # headshot_area_y = map_area_y + map_height - 50
             # Headshot target box (tuned to match reference slide)
-            headshot_area_width_px = 720
-            headshot_area_height_px = 820
-            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 + 30
-            headshot_area_y_px = map_area_y + int(map_height * 0.52) - 15
+            headshot_area_width_px = 820
+            headshot_area_height_px = 900
+            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 + 20
+            headshot_area_y_px = map_area_y + int(map_height * 0.46)
             
             slide_pptx.shapes.add_picture(
                 headshot_bytes,
