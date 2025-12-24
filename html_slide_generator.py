@@ -450,17 +450,15 @@ class HTMLSlideGenerator:
 
         try:
             client = OpenAI(api_key=api_key)
+            # Important: pass a file handle so mimetype is recognized (not octet-stream)
             with open(path, "rb") as f:
-                image_bytes = f.read()
-
-            # Use the safer gpt-image-1 edit endpoint; if unavailable, will be caught.
-            resp = client.images.edit(
-                model="gpt-image-1",
-                image=image_bytes,
-                prompt="Remove the background; return transparent PNG of the person.",
-                size="1024x1024",
-                output_format="png",
-            )
+                resp = client.images.edit(
+                    model="gpt-image-1",
+                    image=f,
+                    prompt="Remove the background; return transparent PNG of the person.",
+                    size="1024x1024",
+                    output_format="png",
+                )
 
             if not resp or not getattr(resp, "data", None):
                 return None
@@ -641,7 +639,15 @@ class HTMLSlideGenerator:
         if max(img.size) > max_size:
             img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
 
-        # 1) remove.bg API (if available)
+        # 1) OpenAI images.edit (optional, if key + SDK available) — make this primary
+        openai_img = self._remove_bg_openai(path)
+        if openai_img is not None:
+            o, t, ma = self._alpha_stats(openai_img)
+            print(f"   OpenAI alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
+            if o > 0.10 and t > 0.10:
+                return openai_img
+
+        # 2) remove.bg API (if available)
         if use_api:
             try:
                 from image_processor import ImageProcessor
@@ -657,15 +663,7 @@ class HTMLSlideGenerator:
             except Exception as e:
                 print(f"   API removal failed: {e}")
 
-        # 1b) OpenAI images.edit (optional, if key + SDK available)
-        openai_img = self._remove_bg_openai(path)
-        if openai_img is not None:
-            o, t, ma = self._alpha_stats(openai_img)
-            print(f"   OpenAI alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
-            if o > 0.10 and t > 0.10:
-                return openai_img
-
-        # 2) local rembg
+        # 3) local rembg
         rembg_img = self._remove_bg_rembg(img)
         if rembg_img is not None:
             o, t, ma = self._alpha_stats(rembg_img)
@@ -673,7 +671,7 @@ class HTMLSlideGenerator:
             if o > 0.10 and t > 0.10:
                 return rembg_img
 
-        # 3) Last resort: aggressive flood-fill for studio backgrounds
+        # 4) Last resort: aggressive flood-fill for studio backgrounds
         ff = self._remove_background_gray(img, tol=30, feather=1)
         o, t, ma = self._alpha_stats(ff)
         print(f"   floodfill alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
