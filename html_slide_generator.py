@@ -887,7 +887,7 @@ class HTMLSlideGenerator:
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # No need to resize again - thumbnail already resized it, just ensure exact size if needed
             if logo_img.size != (logo_size - 20, logo_size - 20):
-            logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
+                logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
             
             # Apply circular mask to logo
             logo_masked = Image.new('RGBA', (logo_size, logo_size), (0, 0, 0, 0))
@@ -1175,7 +1175,7 @@ class HTMLSlideGenerator:
                                     api_img = api_img.convert('RGBA')
                                     img = api_img
                                     print(f"   ✓ Background removed via API for {path}")
-                except Exception as e:
+                            except Exception as e:
                                 print(f"   Warning: API background removal failed for {path}: {e}")
 
                         # If API already gave transparency, skip manual removal
