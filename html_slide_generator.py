@@ -310,7 +310,7 @@ class HTMLSlideGenerator:
         """
         try:
             import numpy as np
-        except ImportError:
+            except ImportError:
             print("   Warning: numpy not available for gray background removal")
             return img.convert("RGBA")
 
@@ -400,23 +400,22 @@ class HTMLSlideGenerator:
 
     def _remove_bg_rembg(self, rgba_img: Image.Image) -> Optional[Image.Image]:
         """
-        Local ML segmentation using rembg with Alpha Matting enabled for better hair details.
-        Requires: pip install rembg onnxruntime
+        Local ML segmentation using rembg.
+        Alpha matting enabled; no aggressive erosion (handled in post).
         """
         try:
-            from rembg import remove, new_session
+            from rembg import remove
 
             buf = io.BytesIO()
             rgba_img.save(buf, format="PNG")
             input_data = buf.getvalue()
 
-            # Alpha matting for higher-quality edges; erode a bit to cut halos
             out = remove(
                 input_data,
                 alpha_matting=True,
                 alpha_matting_foreground_threshold=240,
                 alpha_matting_background_threshold=10,
-                alpha_matting_erode_size=10,
+                alpha_matting_erode_size=0,  # preserve detail; refine later
             )
 
             out_img = Image.open(io.BytesIO(out)).convert("RGBA")
@@ -425,6 +424,28 @@ class HTMLSlideGenerator:
         except Exception as e:
             print(f"   rembg failed: {e}")
             return None
+
+    def _darken_edges(self, img: Image.Image) -> Image.Image:
+        """
+        Aggressively darkens semi-transparent pixels to remove 'white halo' artifacts.
+        """
+            try:
+                import numpy as np
+        except ImportError:
+            return img
+
+        arr = np.array(img)
+        rgb = arr[..., :3].astype(float)
+        alpha = arr[..., 3].astype(float) / 255.0
+
+        # Darken semi-transparent pixels: alpha^2 pushes fringes into shadow
+        factor = alpha * alpha
+        factor = np.dstack([factor, factor, factor])
+        rgb = rgb * factor
+
+        out = arr.copy()
+        out[..., :3] = rgb.astype(np.uint8)
+        return Image.fromarray(out, 'RGBA')
 
     def _refine_edges(self, img: Image.Image, erode_size: int = 3, blur_radius: float = 1.0) -> Image.Image:
         """
@@ -975,11 +996,11 @@ class HTMLSlideGenerator:
             logo_w, logo_h = logo_img.size
             # Use the smaller dimension to make it more circular
             min_dim = min(logo_w, logo_h)
-            logo_img = logo_img.crop(((logo_w - min_dim) // 2, (logo_h - min_dim) // 2,
+            logo_img = logo_img.crop(((logo_w - min_dim) // 2, (logo_h - min_dim) // 2, 
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # No need to resize again - thumbnail already resized it, just ensure exact size if needed
             if logo_img.size != (logo_size - 20, logo_size - 20):
-                logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
+            logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
             
             # Apply circular mask to logo
             logo_masked = Image.new('RGBA', (logo_size, logo_size), (0, 0, 0, 0))
@@ -1247,13 +1268,16 @@ class HTMLSlideGenerator:
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
-                        # 1) Remove background with best effort
+                        # 1. Remove Background
                         img = self._remove_bg_best_effort(path, use_api_removal)
 
-                        # 2) Refine edges: erode mask slightly, then soften
-                        img = self._refine_edges(img, erode_size=3, blur_radius=1.0)
+                        # 2. Refine edges (slight erode + soften)
+                        img = self._refine_edges(img, erode_size=2, blur_radius=1.0)
 
-                        # 3) Convert to greyscale while preserving refined alpha; boost contrast a bit
+                        # 3. Darken semi-transparent edges to kill white halo
+                        img = self._darken_edges(img)
+
+                        # 4. Convert to greyscale while preserving refined alpha; boost contrast slightly
                         r, g, b, a = img.split()
                         gray = img.convert('L')
                         gray = ImageEnhance.Contrast(gray).enhance(1.1)
@@ -1421,7 +1445,7 @@ class HTMLSlideGenerator:
                 with open(tmp_file.name, 'rb') as f:
                     img_bytes = f.read()
                 pdf_bytes = img2pdf.convert(img_bytes)
-                return pdf_bytes
+        return pdf_bytes
             finally:
                 # Clean up temporary file
                 try:
@@ -1545,7 +1569,7 @@ class HTMLSlideGenerator:
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # Only resize if thumbnail didn't produce exact size
             if logo_img.size != (logo_size_px - 20, logo_size_px - 20):
-                logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
+            logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
             logo_masked = Image.new('RGBA', (logo_size_px, logo_size_px), (0, 0, 0, 0))
             logo_masked.paste(logo_img, (10, 10), logo_img)
             logo_masked.putalpha(circle_mask)
