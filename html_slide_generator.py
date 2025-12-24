@@ -1000,7 +1000,7 @@ class HTMLSlideGenerator:
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
             # No need to resize again - thumbnail already resized it, just ensure exact size if needed
             if logo_img.size != (logo_size - 20, logo_size - 20):
-            logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
+                logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
             
             # Apply circular mask to logo
             logo_masked = Image.new('RGBA', (logo_size, logo_size), (0, 0, 0, 0))
@@ -1445,7 +1445,10 @@ class HTMLSlideGenerator:
                 with open(tmp_file.name, 'rb') as f:
                     img_bytes = f.read()
                 pdf_bytes = img2pdf.convert(img_bytes)
-        return pdf_bytes
+                return pdf_bytes
+            except Exception as e:
+                print(f"Error: {e}")
+                return None
             finally:
                 # Clean up temporary file
                 try:
