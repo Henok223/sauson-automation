@@ -308,8 +308,8 @@ class HTMLSlideGenerator:
         Flood-fill background removal for GRAYSCALE headshots.
         Uses luminance-only distance with border sampling and auto-tuned tolerance.
         """
-            try:
-                import numpy as np
+        try:
+            import numpy as np
         except ImportError:
             print("   Warning: numpy not available for gray background removal")
             return img.convert("RGBA")
