@@ -414,17 +414,45 @@ class CanvaIntegration:
                 result = response.json()
                 job = result.get("job", {})
                 
+                # Debug: log the full response structure
+                print(f"   DEBUG: Import job response keys: {list(result.keys())}")
+                print(f"   DEBUG: Job object keys: {list(job.keys()) if isinstance(job, dict) else 'Not a dict'}")
+                print(f"   DEBUG: Full job response: {job}")
+                
                 status_info = {
                     'status': job.get("status", "unknown"),
                     'job_id': job_id,
                 }
                 
                 # If successful, include design_id
+                # Try multiple possible fields where design_id might be
                 if status_info['status'] == 'success':
-                    design_id = job.get("design_id") or job.get("id")
+                    design_id = (
+                        job.get("design_id") or 
+                        job.get("designId") or 
+                        job.get("id") or
+                        job.get("result", {}).get("design_id") or
+                        job.get("result", {}).get("designId") or
+                        job.get("result", {}).get("id") or
+                        result.get("design_id") or
+                        result.get("designId") or
+                        result.get("id")
+                    )
                     if design_id:
                         status_info['design_id'] = design_id
-                        status_info['design_url'] = job.get("url") or job.get("edit_url")
+                        # Try to get URL from various possible fields
+                        design_url = (
+                            job.get("url") or 
+                            job.get("edit_url") or 
+                            job.get("editUrl") or
+                            job.get("result", {}).get("url") or
+                            job.get("result", {}).get("edit_url") or
+                            f"https://www.canva.com/design/{design_id}/edit"
+                        )
+                        status_info['design_url'] = design_url
+                        print(f"   DEBUG: Extracted design_id: {design_id}")
+                    else:
+                        print(f"   DEBUG: No design_id found in response. Job keys: {list(job.keys())}")
                 
                 # If failed, include error
                 if status_info['status'] == 'failed':
@@ -436,75 +464,314 @@ class CanvaIntegration:
         except Exception as e:
             raise Exception(f"Error checking import job status: {e}")
     
-    def append_slide_to_design(self, existing_design_id: str, new_slide_pdf_bytes: bytes, filename: str = "merged_slides.pdf") -> str:
+    def _duplicate_design(self, design_id: str) -> str:
         """
-        Append a new slide to an existing Canva design by:
-        1. Exporting the existing design as PDF
-        2. Merging with the new slide PDF
-        3. Uploading the merged PDF back to Canva (replaces the design)
+        Duplicate an existing Canva design.
         
         Args:
-            existing_design_id: Canva design ID to append to
-            new_slide_pdf_bytes: PDF bytes of the new slide to append
-            filename: Filename for the merged PDF
+            design_id: Canva design ID to duplicate
             
         Returns:
-            New design ID (or job ID if async)
+            New design ID of the duplicated design
+        """
+        print(f"   Duplicating design: {design_id}")
+        
+        # Try different duplication endpoints
+        # Based on errors: "One of 'design_type' or 'asset_id' must be defined" and "'type' must not be null"
+        # Remove empty payloads that might send null type - only try with explicit fields
+        duplicate_endpoints = [
+            # Try /duplicate endpoint with explicit type
+            (f"{self.base_url}/designs/{design_id}/duplicate", "post", {"type": "DESIGN"}),
+            # Try /copy endpoint with explicit type
+            (f"{self.base_url}/designs/{design_id}/copy", "post", {"type": "DESIGN"}),
+            # Try POST /designs with design_type and source_design_id
+            (f"{self.base_url}/designs", "post", {"design_type": "DESIGN", "source_design_id": design_id}),
+            (f"{self.base_url}/designs", "post", {"design_type": "STANDARD", "source_design_id": design_id}),
+            # Try with asset_id instead of source_design_id
+            (f"{self.base_url}/designs", "post", {"design_type": "DESIGN", "asset_id": design_id}),
+            (f"{self.base_url}/designs", "post", {"design_type": "STANDARD", "asset_id": design_id}),
+            # Try with template_id (treating design as template)
+            (f"{self.base_url}/designs", "post", {"design_type": "DESIGN", "template_id": design_id}),
+            # Try with both type and design_type (some APIs require both)
+            (f"{self.base_url}/designs", "post", {"type": "DESIGN", "design_type": "DESIGN", "source_design_id": design_id}),
+        ]
+        
+        last_error = None
+        for endpoint, method, payload in duplicate_endpoints:
+            try:
+                # All payloads now have explicit fields (no empty payloads)
+                response = self._make_authenticated_request(
+                    method,
+                    endpoint,
+                    json=payload
+                )
+                
+                if response.status_code in [200, 201]:
+                    try:
+                        result = response.json()
+                        # Try to extract design ID from response
+                        design_id_new = result.get("id") or result.get("design_id") or result.get("designId")
+                        if design_id_new:
+                            print(f"   ✓ Duplicated design: {design_id_new}")
+                            return design_id_new
+                    except Exception as e:
+                        print(f"   Failed to parse duplicate response: {e}")
+                        last_error = f"Parse error: {e}"
+                        continue
+                else:
+                    last_error = f"{response.status_code}: {response.text[:200]}"
+                    continue
+            except Exception as e:
+                last_error = str(e)
+                continue
+        
+        raise Exception(f"Failed to duplicate design from all endpoints. Last error: {last_error}")
+    
+    def _replace_design_content(self, design_id: str, pdf_bytes: bytes, filename: str) -> bool:
+        """
+        Replace the content of an existing design with a new PDF.
+        This attempts to replace all pages in the design with the new PDF content.
+        
+        Args:
+            design_id: Canva design ID to modify
+            pdf_bytes: PDF bytes to replace content with
+            filename: Filename for the PDF
+            
+        Returns:
+            True if successful, False otherwise
         """
         try:
-            print(f"   Appending slide to existing Canva design: {existing_design_id}")
+            print(f"   Attempting to replace content in design {design_id}...")
             
-            # Step 1: Export existing design as PDF
-            print("   Exporting existing design as PDF...")
-            existing_pdf_bytes = self._export_as_pdf(existing_design_id)
-            print(f"   ✓ Exported existing design ({len(existing_pdf_bytes)} bytes)")
+            # Try uploading PDF and then replacing design content
+            # First, upload the PDF as an asset
+            asset_id = self.upload_pdf_asset(pdf_bytes, filename)
             
-            # Step 2: Merge PDFs
-            print("   Merging PDFs...")
-            from PyPDF2 import PdfReader, PdfWriter
+            # If it's a job ID, wait for completion to get the design ID
+            import re
+            is_job_id = re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', asset_id, re.IGNORECASE)
+            if is_job_id:
+                status_info = self.wait_for_import_completion(asset_id, max_wait_seconds=60, poll_interval=2)
+                if status_info.get('status') == 'success':
+                    new_design_id = status_info.get('design_id')
+                    print(f"   ⚠️  Upload created new design {new_design_id} instead of replacing")
+                    return False
+            
+            # Try to replace pages in the existing design
+            # Note: Canva API may not support this directly
+            # We'll try to delete old pages and add new ones
+            print(f"   ⚠️  Canva API doesn't support direct content replacement")
+            print(f"   Will duplicate design and replace content manually")
+            return False
+            
+        except Exception as e:
+            print(f"   ⚠️  Failed to replace design content: {e}")
+            return False
+    
+    def _download_design_pdf(self, design_id: str) -> Optional[bytes]:
+        """
+        Download/export PDF from an existing Canva design.
+        NOTE: Canva API doesn't support PDF export, so this will always fail.
+        Use existing_pdf_bytes parameter in append_slide_to_design instead.
+        
+        Args:
+            design_id: Canva design ID to download
+            
+        Returns:
+            PDF bytes if successful, None if design doesn't exist or export fails
+        """
+        try:
+            print(f"   Downloading existing PDF from design: {design_id}")
+            pdf_bytes = self._export_as_pdf(design_id)
+            print(f"   ✓ Downloaded existing PDF ({len(pdf_bytes)} bytes)")
+            return pdf_bytes
+        except Exception as e:
+            print(f"   ⚠️  Could not download existing design PDF: {e}")
+            print(f"   (Canva API doesn't support PDF export - use existing_pdf_bytes parameter instead)")
+            return None
+    
+    def _compress_pdf(self, pdf_bytes: bytes, max_size_mb: float = 20.0) -> bytes:
+        """
+        Compress PDF if it's too large for Canva API upload.
+        Uses PyPDF2 compression and image optimization if available.
+        
+        Args:
+            pdf_bytes: PDF bytes to compress
+            max_size_mb: Maximum size in MB (default 20MB, Canva limit is ~25MB but we use 20MB for safety)
+            
+        Returns:
+            Compressed PDF bytes (or original if already small enough)
+        """
+        size_mb = len(pdf_bytes) / (1024 * 1024)
+        if size_mb <= max_size_mb:
+            print(f"   PDF size ({size_mb:.2f} MB) is within limit, skipping compression")
+            return pdf_bytes
+        
+        print(f"   PDF size ({size_mb:.2f} MB) exceeds limit ({max_size_mb} MB), attempting compression...")
+        
+        try:
+            from PyPDF2 import PdfWriter, PdfReader
             import io
             
+            # Read PDF
+            reader = PdfReader(io.BytesIO(pdf_bytes))
             writer = PdfWriter()
             
-            # Add pages from existing PDF
-            existing_reader = PdfReader(io.BytesIO(existing_pdf_bytes))
-            for page in existing_reader.pages:
+            # Copy pages with compression
+            for page in reader.pages:
+                # Compress the page
+                page.compress_content_streams()
                 writer.add_page(page)
             
-            # Add pages from new slide PDF
+            # Write compressed PDF
+            compressed_pdf = io.BytesIO()
+            writer.write(compressed_pdf)
+            compressed_pdf.seek(0)
+            compressed_bytes = compressed_pdf.read()
+            
+            compressed_size_mb = len(compressed_bytes) / (1024 * 1024)
+            reduction = ((size_mb - compressed_size_mb) / size_mb) * 100
+            
+            print(f"   ✓ Compressed PDF: {size_mb:.2f} MB → {compressed_size_mb:.2f} MB ({reduction:.1f}% reduction)")
+            
+            # If still too large, return original (better than failing)
+            if compressed_size_mb > max_size_mb * 1.2:  # 20% tolerance
+                print(f"   ⚠️  Compressed PDF still large ({compressed_size_mb:.2f} MB), using original")
+                return pdf_bytes
+            
+            return compressed_bytes
+            
+        except Exception as e:
+            print(f"   ⚠️  PDF compression failed: {e}, using original")
+            return pdf_bytes
+    
+    def _merge_pdfs(self, existing_pdf_bytes: Optional[bytes], new_slide_pdf_bytes: bytes) -> bytes:
+        """
+        Merge existing PDF with new slide PDF locally using PyPDF2.
+        
+        Args:
+            existing_pdf_bytes: PDF bytes of existing design (None if no existing design)
+            new_slide_pdf_bytes: PDF bytes of new slide to append
+            
+        Returns:
+            Merged PDF bytes
+        """
+        try:
+            from PyPDF2 import PdfWriter, PdfReader
+            import io
+            
+            print("   Merging PDFs locally...")
+            writer = PdfWriter()
+            
+            # Add pages from existing PDF if available
+            if existing_pdf_bytes:
+                existing_reader = PdfReader(io.BytesIO(existing_pdf_bytes))
+                for page in existing_reader.pages:
+                    writer.add_page(page)
+                print(f"   ✓ Added {len(existing_reader.pages)} pages from existing design")
+            
+            # Add pages from new slide
             new_reader = PdfReader(io.BytesIO(new_slide_pdf_bytes))
             for page in new_reader.pages:
                 writer.add_page(page)
+            print(f"   ✓ Added {len(new_reader.pages)} page(s) from new slide")
             
-            # Write merged PDF
-            merged_buffer = io.BytesIO()
-            writer.write(merged_buffer)
-            merged_buffer.seek(0)
-            merged_pdf_bytes = merged_buffer.read()
+            # Write merged PDF to bytes
+            merged_pdf = io.BytesIO()
+            writer.write(merged_pdf)
+            merged_pdf.seek(0)
+            merged_bytes = merged_pdf.read()
             
-            print(f"   ✓ Merged PDFs ({len(merged_pdf_bytes)} bytes, {len(existing_reader.pages) + len(new_reader.pages)} pages)")
+            total_pages = len(writer.pages)
+            size_mb = len(merged_bytes) / (1024 * 1024)
+            print(f"   ✓ Merged PDF created ({total_pages} total pages, {size_mb:.2f} MB)")
             
-            # Step 3: Upload merged PDF (this will create a new design or replace if Canva supports it)
-            # Note: Canva API might not support direct replacement, so this creates a new design
-            # You'll need to delete the old design manually or track the new ID
-            print("   Uploading merged PDF to Canva...")
-            new_design_id = self.upload_pdf_asset(merged_pdf_bytes, filename)
+            # Compress if too large (Canva API limit is ~25MB, but we use 20MB for safety)
+            if size_mb > 20.0:
+                print(f"   PDF is too large ({size_mb:.2f} MB), compressing...")
+                merged_bytes = self._compress_pdf(merged_bytes, max_size_mb=20.0)
+            
+            return merged_bytes
+            
+        except ImportError:
+            raise Exception("PyPDF2 is required for PDF merging. Install with: pip install PyPDF2")
+        except Exception as e:
+            raise Exception(f"Failed to merge PDFs: {e}")
+    
+    def append_slide_to_design(self, existing_design_id: str, new_slide_pdf_bytes: bytes, filename: str = "merged_slides.pdf", existing_pdf_bytes: Optional[bytes] = None) -> str:
+        """
+        Append a new slide to an existing Canva design using Option A:
+        1. Use existing PDF bytes (from Google Drive or other source) if provided
+        2. Otherwise, try to download existing PDF from Canva (usually fails - API doesn't support export)
+        3. Merge new slide PDF with existing PDF locally
+        4. Import merged PDF to Canva (creates/updates single multi-page design)
+        
+        This approach gives you "one Canva project" with all pages, without needing
+        page-append APIs.
+        
+        Args:
+            existing_design_id: Canva design ID to append to (for reference/logging)
+            new_slide_pdf_bytes: PDF bytes of the new slide to append
+            filename: Filename for the merged PDF
+            existing_pdf_bytes: Optional existing PDF bytes (e.g., from Google Drive).
+                               If provided, this will be used instead of trying to export from Canva.
+            
+        Returns:
+            Design ID or job ID from Canva import
+        """
+        try:
+            print(f"   Appending slide to existing Canva design: {existing_design_id}")
+            print("   Using Option A: Merge PDFs locally, then import once")
+            
+            # Step 1: Get existing PDF bytes
+            if existing_pdf_bytes:
+                print(f"   Using provided existing PDF ({len(existing_pdf_bytes)} bytes)")
+            else:
+                # Try to download from Canva (will likely fail - API doesn't support export)
+                existing_pdf_bytes = self._download_design_pdf(existing_design_id)
+            
+            # Step 2: Merge PDFs locally
+            merged_pdf_bytes = self._merge_pdfs(existing_pdf_bytes, new_slide_pdf_bytes)
+            
+            # Step 3: Import merged PDF to Canva
+            # This will create a new design or we can try to replace the existing one
+            print("   Importing merged PDF to Canva...")
+            import_id = self.upload_pdf_asset(merged_pdf_bytes, filename)
             
             # If it's a job ID, wait for completion
             import re
-            is_job_id = re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', new_design_id, re.IGNORECASE)
+            is_job_id = re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', import_id, re.IGNORECASE)
             if is_job_id:
-                status_info = self.wait_for_import_completion(new_design_id, max_wait_seconds=60, poll_interval=2)
+                status_info = self.wait_for_import_completion(import_id, max_wait_seconds=60, poll_interval=2)
                 if status_info.get('status') == 'success':
                     final_design_id = status_info.get('design_id')
-                    print(f"   ✓ Appended slide to design. New design ID: {final_design_id}")
-                    print(f"   ⚠️  Note: Old design ({existing_design_id}) should be deleted manually")
-                    return final_design_id
-            
-            return new_design_id
+                    if final_design_id:
+                        # Check if it's a valid Canva design ID (starts with DAG) or if it's still a job ID
+                        if final_design_id.startswith('DAG'):
+                            print(f"   ✓ Merged PDF imported successfully! Design ID: {final_design_id}")
+                            print(f"   📄 View design: https://www.canva.com/design/{final_design_id}/edit")
+                            return final_design_id
+                        else:
+                            print(f"   ⚠️  Got job ID instead of design ID: {final_design_id}")
+                            print(f"   📝 Check your Canva account for the imported design")
+                            print(f"   📝 Or try: https://www.canva.com/design/{final_design_id}/edit")
+                            # Return it anyway - might work, or user can find it in their account
+                            return final_design_id
+                    else:
+                        print(f"   ✓ Import completed, but no design_id in response")
+                        print(f"   📝 Check your Canva account - the design should be there")
+                        return import_id
+                else:
+                    print(f"   ⚠️  Import job status: {status_info.get('status')}")
+                    return import_id
+            else:
+                print(f"   ✓ Merged PDF imported! Design/Import ID: {import_id}")
+                return import_id
             
         except Exception as e:
             print(f"   ⚠️  Failed to append to existing design: {e}")
+            import traceback
+            traceback.print_exc()
             # Fallback: just upload the new slide as a separate design
             print("   Falling back to uploading new slide as separate design...")
             return self.upload_pdf_asset(new_slide_pdf_bytes, filename)
@@ -541,7 +808,37 @@ class CanvaIntegration:
         raise Exception(f"Import job {job_id} did not complete within {max_wait_seconds} seconds")
     
     def _load_tokens(self):
-        """Load stored OAuth tokens from file."""
+        """Load stored OAuth tokens from environment variables or file."""
+        # Priority 1: Check environment variables (for Render persistence)
+        env_refresh_token = os.getenv("CANVA_REFRESH_TOKEN")
+        env_access_token = os.getenv("CANVA_ACCESS_TOKEN")
+        env_token_refreshed_at = os.getenv("CANVA_TOKEN_REFRESHED_AT")
+        
+        if env_refresh_token:
+            self._refresh_token = env_refresh_token
+            if env_access_token:
+                self._access_token = env_access_token
+            if env_token_refreshed_at:
+                try:
+                    import time
+                    token_refreshed_at = float(env_token_refreshed_at)
+                    current_time = time.time()
+                    time_since_refresh = current_time - token_refreshed_at
+                    hours_since_refresh = time_since_refresh / 3600
+                    
+                    if self._access_token:
+                        print("✓ Loaded Canva OAuth tokens from environment variables")
+                        if time_since_refresh > 14400:  # 4 hours
+                            print(f"   Token is {hours_since_refresh:.1f} hours old (>4 hours), will refresh before next request")
+                        else:
+                            print(f"   Token is {hours_since_refresh:.1f} hours old (still valid)")
+                except (ValueError, TypeError):
+                    pass
+            elif self._access_token:
+                print("✓ Loaded Canva OAuth tokens from environment variables")
+            return
+        
+        # Priority 2: Load from file (for local development)
         if os.path.exists(self.token_file):
             try:
                 import json
@@ -553,7 +850,7 @@ class CanvaIntegration:
                     token_refreshed_at = tokens.get("token_refreshed_at", 0)
                     
                     if self._access_token:
-                        print("✓ Loaded stored Canva OAuth tokens")
+                        print("✓ Loaded stored Canva OAuth tokens from file")
                         # Check if token is older than 4 hours (14400 seconds)
                         current_time = time.time()
                         time_since_refresh = current_time - token_refreshed_at
@@ -567,17 +864,33 @@ class CanvaIntegration:
                 print(f"Warning: Could not load tokens from {self.token_file}: {e}")
     
     def _save_tokens(self, tokens: dict):
-        """Save OAuth tokens to file."""
+        """Save OAuth tokens to file and update in-memory cache."""
         try:
             import json
             import time
             # Add timestamp when token was refreshed
             if "access_token" in tokens:
                 tokens["token_refreshed_at"] = time.time()
-            with open(self.token_file, 'w') as f:
-                json.dump(tokens, f, indent=2)
+            
+            # Update in-memory cache
             self._access_token = tokens.get("access_token")
             self._refresh_token = tokens.get("refresh_token")
+            
+            # Save to file (for local development)
+            # Note: On Render, tokens should be set via environment variables
+            # This file save is for local development convenience
+            try:
+                with open(self.token_file, 'w') as f:
+                    json.dump(tokens, f, indent=2)
+            except Exception as file_error:
+                # File save failed (might be on Render with read-only filesystem)
+                # That's okay, we have the tokens in memory
+                pass
+            
+            # If we're using environment variables (Render), log that tokens were refreshed
+            # User will need to manually update CANVA_REFRESH_TOKEN in Render dashboard if it changes
+            if os.getenv("CANVA_REFRESH_TOKEN"):
+                print("   ⚠️  Note: Tokens refreshed. Update CANVA_REFRESH_TOKEN in Render dashboard if refresh token changed.")
         except Exception as e:
             print(f"Warning: Could not save tokens: {e}")
     
@@ -725,6 +1038,7 @@ class CanvaIntegration:
     def _make_authenticated_request(self, method: str, url: str, **kwargs):
         """
         Make an authenticated request with automatic token refresh.
+        Uses cached token to avoid excessive refreshes.
         
         Args:
             method: HTTP method (get, post, put, etc.)
@@ -734,7 +1048,11 @@ class CanvaIntegration:
         Returns:
             Response object
         """
-        access_token = self._get_access_token()
+        # Use cached token if available (avoid refreshing on every request)
+        if not self._access_token:
+            self._access_token = self._get_access_token()
+        access_token = self._access_token
+        
         headers = kwargs.get("headers", {})
         headers["Authorization"] = f"Bearer {access_token}"
         kwargs["headers"] = headers

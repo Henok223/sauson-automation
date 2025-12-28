@@ -516,7 +516,7 @@ class HTMLSlideGenerator:
         Does NOT darken fully opaque pixels (avoids making the whole face dark).
         """
         try:
-            import numpy as np
+                import numpy as np
         except ImportError:
             return img
 
@@ -1212,29 +1212,25 @@ class HTMLSlideGenerator:
             # Don't erase background - keep it transparent (no black box)
             # Just paste the logo directly with circular mask
             
-            # Resize logo to fit within circle (with more padding for circular shape)
-            # Make it more circular by using square aspect ratio
-            logo_img.thumbnail((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
-            
-            # Create perfectly circular mask
+            # Create perfectly circular mask first
             circle_mask = Image.new('L', (logo_size, logo_size), 0)
             circle_draw = ImageDraw.Draw(circle_mask)
             circle_draw.ellipse([(0, 0), (logo_size, logo_size)], fill=255)
             
-            # Center logo in circle (square crop for circular appearance)
+            # Resize logo to fill the entire circle (no padding, fill the circle)
+            # Center crop to square first
             logo_w, logo_h = logo_img.size
-            # Use the smaller dimension to make it more circular
             min_dim = min(logo_w, logo_h)
             logo_img = logo_img.crop(((logo_w - min_dim) // 2, (logo_h - min_dim) // 2, 
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
-            # No need to resize again - thumbnail already resized it, just ensure exact size if needed
-            if logo_img.size != (logo_size - 20, logo_size - 20):
-                logo_img = logo_img.resize((logo_size - 20, logo_size - 20), Image.Resampling.LANCZOS)
             
-            # Apply circular mask to logo
+            # Resize to fill the entire circle (logo_size x logo_size)
+            logo_img = logo_img.resize((logo_size, logo_size), Image.Resampling.LANCZOS)
+            
+            # Apply circular mask to logo - this makes it truly circular
             logo_masked = Image.new('RGBA', (logo_size, logo_size), (0, 0, 0, 0))
-            logo_masked.paste(logo_img, (10, 10), logo_img)  # Center with 10px padding
-            logo_masked.putalpha(circle_mask)
+            logo_masked.paste(logo_img, (0, 0))  # Paste at origin, no padding
+            logo_masked.putalpha(circle_mask)  # Apply circular mask to make it round
             
             slide.paste(logo_masked, (logo_x, logo_y), logo_masked)
             draw = ImageDraw.Draw(slide)
@@ -1655,7 +1651,7 @@ class HTMLSlideGenerator:
         
         # Use bigger font size for better visibility (36-46pt range)
         stage_font_size = 40
-        sidebar_bold_font = self._load_font(stage_font_size, bold=True)
+        sidebar_bold_font = self._load_font(stage_font_size, bold=False)  # Less bold for easier reading
         
         # Don't erase background - keep it transparent
         # Use black color
@@ -1877,24 +1873,25 @@ class HTMLSlideGenerator:
             logo_img.load()
             # Make circular (same as PIL code)
             logo_size_px = 130
-            logo_img.thumbnail((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
             
-            # Create circular mask
+            # Create circular mask first
             circle_mask = Image.new('L', (logo_size_px, logo_size_px), 0)
             circle_draw = ImageDraw.Draw(circle_mask)
             circle_draw.ellipse([(0, 0), (logo_size_px, logo_size_px)], fill=255)
             
-            # Apply mask
+            # Center crop to square first
             logo_w, logo_h = logo_img.size
             min_dim = min(logo_w, logo_h)
             logo_img = logo_img.crop(((logo_w - min_dim) // 2, (logo_h - min_dim) // 2, 
                                      (logo_w + min_dim) // 2, (logo_h + min_dim) // 2))
-            # Only resize if thumbnail didn't produce exact size
-            if logo_img.size != (logo_size_px - 20, logo_size_px - 20):
-                logo_img = logo_img.resize((logo_size_px - 20, logo_size_px - 20), Image.Resampling.LANCZOS)
+            
+            # Resize to fill the entire circle (logo_size_px x logo_size_px)
+            logo_img = logo_img.resize((logo_size_px, logo_size_px), Image.Resampling.LANCZOS)
+            
+            # Apply circular mask to logo - this makes it truly circular
             logo_masked = Image.new('RGBA', (logo_size_px, logo_size_px), (0, 0, 0, 0))
-            logo_masked.paste(logo_img, (10, 10), logo_img)
-            logo_masked.putalpha(circle_mask)
+            logo_masked.paste(logo_img, (0, 0))  # Paste at origin, no padding
+            logo_masked.putalpha(circle_mask)  # Apply circular mask to make it round
             
             logo_bytes = io.BytesIO()
             logo_masked.save(logo_bytes, format='PNG')
@@ -1980,7 +1977,7 @@ class HTMLSlideGenerator:
             
             # BIGGER FONT (36-46pt range)
             run.font.size = Pt(40)
-            run.font.bold = True
+            run.font.bold = False  # Less bold for easier reading
             run.font.color.rgb = RGBColor(0, 0, 0)  # Black
         
         # 5) Headshot (below map, editable)

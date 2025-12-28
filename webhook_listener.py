@@ -728,7 +728,26 @@ def handle_onboarding():
                             # Append to existing design
                             print("Appending slide to existing Canva design...")
                             try:
-                                canva_asset_id = canva.append_slide_to_design(target_canva_design_id, slide_pdf_bytes, filename)
+                                # Get existing PDF from Google Drive for merging (if available)
+                                # This is the source of truth since Canva API doesn't support PDF export
+                                existing_pdf_bytes = None
+                                if target_file_id:
+                                    try:
+                                        existing_pdf_bytes = drive.download_file(target_file_id)
+                                        print(f"   Downloaded existing PDF from Google Drive ({len(existing_pdf_bytes)} bytes) for Canva merge")
+                                    except Exception as e:
+                                        print(f"   Could not download from Google Drive: {e}")
+                                        print(f"   (This is OK if it's the first slide)")
+                                        existing_pdf_bytes = None
+                                else:
+                                    print(f"   No Google Drive file ID available, using only new slide")
+                                
+                                canva_asset_id = canva.append_slide_to_design(
+                                    target_canva_design_id, 
+                                    slide_pdf_bytes, 
+                                    filename,
+                                    existing_pdf_bytes=existing_pdf_bytes
+                                )
                                 results["canva_asset_id"] = canva_asset_id
                                 
                                 # Check if it's a job ID (import job) or design ID
