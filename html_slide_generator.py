@@ -1710,7 +1710,7 @@ class HTMLSlideGenerator:
                         
                         # Check if background removal returned None
                         if img is None:
-                            print(f"    WARNING: Background removal returned None. Using Map Background.")
+                            print(f"    WARNING: Background removal returned None. Using Transparent Background Fallback.")
                             return make_map_background(original)
 
                         # 2) SAFETY CHECK 1: Did we wipe the image? 
@@ -1718,12 +1718,13 @@ class HTMLSlideGenerator:
                         opaque_frac, transp_frac, mean_alpha = self._alpha_stats(img)
                         print(f"    After BG removal: opaque={opaque_frac:.2f}, transp={transp_frac:.2f}, meanA={mean_alpha:.0f}")
                         if opaque_frac < 0.10: 
-                            print(f"    WARNING: BG removal wiped image (opaque={opaque_frac:.2f}). Using Map Background.")
+                            print(f"    WARNING: BG removal wiped image (opaque={opaque_frac:.2f}). Using Transparent Background Fallback.")
                             return make_map_background(original)
                         
-                        # 2b) SAFETY CHECK: If we removed too much (>50% of image), that's suspicious
-                        if opaque_frac < 0.50:
-                            print(f"    WARNING: Only {opaque_frac:.1%} of image remains - may have removed too much. Using Map Background.")
+                        # 2b) SAFETY CHECK: If we removed too much (<20% of image is person), that's suspicious
+                        # Note: 40-50% opaque is actually good for headshots (person) with 50-60% transparent (background)
+                        if opaque_frac < 0.20:
+                            print(f"    WARNING: Only {opaque_frac:.1%} of image remains - may have removed too much. Using Transparent Background Fallback.")
                             return make_map_background(original)
 
                         # 3) Only clean up mask if rembg didn't work well (low transparency)
@@ -1748,7 +1749,7 @@ class HTMLSlideGenerator:
                         # 4) Final safety check before processing
                         final_check_o, final_check_t, _ = self._alpha_stats(img)
                         if final_check_o < 0.05:
-                            print(f"    WARNING: Image has no subject (opaque={final_check_o:.2f}). Using Map Background.")
+                            print(f"    WARNING: Image has no subject (opaque={final_check_o:.2f}). Using Transparent Background Fallback.")
                             return make_map_background(original)
 
                         # 5) Standard Processing (Grayscale + Edges)
@@ -1759,7 +1760,7 @@ class HTMLSlideGenerator:
                         final_o, final_t, final_ma = self._alpha_stats(img)
                         print(f"    Final headshot stats: opaque={final_o:.2f}, transp={final_t:.2f}, meanA={final_ma:.0f}")
                         if final_o < 0.05:
-                            print(f"    WARNING: Final image has no subject (opaque={final_o:.2f}). Using Map Background.")
+                            print(f"    WARNING: Final image has no subject (opaque={final_o:.2f}). Using Transparent Background Fallback.")
                             return make_map_background(original)
 
                         return img
