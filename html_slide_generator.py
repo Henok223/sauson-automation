@@ -1540,7 +1540,7 @@ class HTMLSlideGenerator:
                 
                 # Position below the map, not overlapping
                 headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50  # Centered under map, slightly left
-                headshot_area_y = map_area_y + map_height + 80  # Position below map with larger gap (lowered)
+                headshot_area_y = map_area_y + map_height + 55  # Position below map with larger gap (lowered)
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
@@ -2192,7 +2192,7 @@ class HTMLSlideGenerator:
             headshot_area_width_px = 500
             headshot_area_height_px = 500
             headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 - 50  # Centered under map, slightly left
-            headshot_area_y_px = map_area_y + map_height + 80  # Position below map with larger gap (lowered)
+            headshot_area_y_px = map_area_y + map_height + 55  # Position below map with larger gap (lowered)
             
             slide_pptx.shapes.add_picture(
                 headshot_bytes,
