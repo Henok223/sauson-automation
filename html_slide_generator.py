@@ -1554,6 +1554,36 @@ class HTMLSlideGenerator:
                         
                         # --- HELPER: MAP BACKGROUND FALLBACK ---
                         # If BG removal fails, composite person on top of map to simulate transparency
+                        # Try to get map from slide if map_path is not available
+                        def get_map_for_background():
+                            """Try to get map image from various sources."""
+                            # First, try map_path if available
+                            if map_path and os.path.exists(map_path):
+                                try:
+                                    return Image.open(map_path).convert("RGBA")
+                                except Exception as e:
+                                    print(f"    Warning: Could not load map from map_path: {e}")
+                            
+                            # Second, try to extract map from slide (if slide exists)
+                            # This requires the slide to be partially rendered, so we'll try to get it from the template
+                            # Actually, we can't do this easily without the slide being rendered
+                            
+                            # Third, try common temp locations
+                            import tempfile
+                            temp_dir = tempfile.gettempdir()
+                            possible_map_paths = [
+                                os.path.join(temp_dir, "map.png"),
+                                os.path.join(temp_dir, "map_placeholder.png"),
+                            ]
+                            for possible_path in possible_map_paths:
+                                if os.path.exists(possible_path):
+                                    try:
+                                        return Image.open(possible_path).convert("RGBA")
+                                    except:
+                                        continue
+                            
+                            return None
+                        
                         def make_map_background(img_in):
                             print("    Applying Map Background Fallback...")
                             # 1. Create a square canvas based on smallest dimension
@@ -1565,16 +1595,13 @@ class HTMLSlideGenerator:
                             img_sq = img_in.crop((left, top, left + d, top + d))
                             
                             # 2. Load map image as background (or create dark map-like background)
-                            print(f"    DEBUG: map_path = {map_path}")
-                            if map_path:
-                                print(f"    DEBUG: map_path exists check: {os.path.exists(map_path) if map_path else False}")
+                            map_source_img = get_map_for_background()
                             
-                            if map_path and os.path.exists(map_path):
+                            if map_source_img:
                                 try:
-                                    print(f"    Loading map image from: {map_path}")
-                                    map_bg = Image.open(map_path).convert("RGBA")
-                                    print(f"    Map image loaded: size={map_bg.size}, mode={map_bg.mode}")
+                                    print(f"    ✓ Found map image, using as background")
                                     # Resize map to match headshot size, maintaining aspect ratio and cropping
+                                    map_bg = map_source_img.copy()
                                     map_bg.thumbnail((d, d), Image.Resampling.LANCZOS)
                                     # If thumbnail made it smaller, center it on a d x d canvas
                                     if map_bg.size != (d, d):
@@ -1583,9 +1610,9 @@ class HTMLSlideGenerator:
                                         paste_y = (d - map_bg.height) // 2
                                         map_canvas.paste(map_bg, (paste_x, paste_y), map_bg)
                                         map_bg = map_canvas
-                                    print(f"    ✓ Using map image as background: {map_path}")
+                                    print(f"    ✓ Map background prepared: size={map_bg.size}")
                                 except Exception as e:
-                                    print(f"    ⚠️  Warning: Could not load map image: {e}")
+                                    print(f"    ⚠️  Warning: Could not process map image: {e}")
                                     import traceback
                                     traceback.print_exc()
                                     # Fallback: create dark gray map-like background
@@ -1593,10 +1620,10 @@ class HTMLSlideGenerator:
                             else:
                                 # Create dark gray map-like background if no map available
                                 map_bg = Image.new("RGBA", (d, d), (42, 42, 42, 255))  # Dark gray #2a2a2a
-                                if not map_path:
-                                    print(f"    ⚠️  No map_path provided (map_path is None)")
-                                else:
-                                    print(f"    ⚠️  Map file does not exist: {map_path}")
+                                print(f"    ⚠️  No map image found, using dark background")
+                                print(f"    DEBUG: map_path = {map_path}")
+                                if map_path:
+                                    print(f"    DEBUG: map_path exists = {os.path.exists(map_path)}")
                             
                             # 3. Convert person to grayscale and make it RGBA
                             person_gray = img_sq.convert("L")
