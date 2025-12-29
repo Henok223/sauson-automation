@@ -317,7 +317,7 @@ class HTMLSlideGenerator:
         """
         try:
             import numpy as np
-            except ImportError:
+        except ImportError:
             print("   Warning: numpy not available for gray background removal")
             return img.convert("RGBA")
 
@@ -517,7 +517,7 @@ class HTMLSlideGenerator:
             a_img = Image.fromarray(a, 'L')
             r, g, b, _ = img.split()
             return Image.merge("RGBA", (r, g, b, a_img))
-            except Exception:
+        except Exception:
             return img
 
     def _strengthen_alpha(self, img: Image.Image, thresh: int = 25, boost: float = 2.0) -> Image.Image:
@@ -594,11 +594,11 @@ class HTMLSlideGenerator:
         Gently darkens only semi-transparent edge pixels to reduce white halo.
         Does NOT darken fully opaque pixels (avoids making the whole face dark).
         """
-            try:
-                import numpy as np
+        try:
+            import numpy as np
         except ImportError:
             return img
-
+            return img
         arr = np.array(img)
         rgb = arr[..., :3].astype(np.float32)
         a = arr[..., 3].astype(np.float32) / 255.0
@@ -721,7 +721,7 @@ class HTMLSlideGenerator:
             r, g, b, a = img.split()
             gray = img.convert("L")
             return Image.merge("RGBA", (gray, gray, gray, a))
-            except Exception as e:
+        except Exception as e:
             print(f"Warning: fallback original headshot failed: {e}")
             return None
 
@@ -787,7 +787,7 @@ class HTMLSlideGenerator:
                     print(f"   API alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
                     if o > 0.10 and t > 0.10:
                         return api_img
-        except Exception as e:
+            except Exception as e:
                 print(f"   API removal failed: {e}")
 
         # 2) OpenAI images.edit (optional, if key + SDK available) — now a backup
@@ -1776,7 +1776,7 @@ class HTMLSlideGenerator:
                             if opaque_after < opaque_frac * 0.5:  # Lost more than 50% of opacity
                                 print(f"    WARNING: _fix_alpha_mask made it worse, reverting...")
                                 img = img_before_fix
-                    else:
+                        else:
                             print(f"    Good transparency ({transp_frac:.2f}), skipping _fix_alpha_mask to preserve quality")
                         
                         # 4) Final safety check before processing
@@ -1801,7 +1801,7 @@ class HTMLSlideGenerator:
                             arr[..., 3] = alpha_hard
                             img = Image.fromarray(arr, "RGBA")
                             print(f"    Hardened alpha channel (threshold=128) to ensure clean transparency")
-                except Exception as e:
+                        except Exception as e:
                             print(f"    Warning: Could not harden alpha: {e}")
                         
                         # Final check before returning
@@ -1997,7 +1997,7 @@ class HTMLSlideGenerator:
                 with open(tmp_file.name, 'rb') as f:
                     img_bytes = f.read()
                 pdf_bytes = img2pdf.convert(img_bytes)
-        return pdf_bytes
+                return pdf_bytes
             except Exception as e:
                 print(f"Error: {e}")
                 return None
