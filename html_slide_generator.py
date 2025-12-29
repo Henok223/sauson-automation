@@ -1534,13 +1534,13 @@ class HTMLSlideGenerator:
                 
                 print("   REMOVEBG_API_KEY not set, using manual background removal" if not use_api_removal else "   Using remove.bg API when available")
 
-                # Headshot target box (sized to match reference slide)
-                headshot_area_width = 600   # Smaller to match reference
-                headshot_area_height = 600   # Keep square
+                # Headshot target box (smaller to not cover map)
+                headshot_area_width = 400   # Reduced from 600 to avoid covering map
+                headshot_area_height = 400   # Keep square
                 
-                # Keep it in the same general area under the map
-                headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 100  # Moved left (was +20)
-                headshot_area_y = map_area_y + int(map_height * 0.85)  # Lowered more (was 0.75)
+                # Position below the map, not overlapping
+                headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50  # Centered under map, slightly left
+                headshot_area_y = map_area_y + map_height + 30  # Position below map with gap
 
                 def load_process_headshot(path: str) -> Optional[Image.Image]:
                     try:
@@ -1665,14 +1665,26 @@ class HTMLSlideGenerator:
 
                 if len(imgs) == 1:
                     im = imgs[0]
+                    # Ensure image has alpha channel for transparency
+                    if im.mode != 'RGBA':
+                        im = im.convert('RGBA')
                     im = self._resize_cover(im, headshot_area_width, headshot_area_height)
-                    slide.paste(im, (headshot_area_x, headshot_area_y), im.split()[3])
+                    # Paste with alpha mask to preserve transparency
+                    if im.mode == 'RGBA':
+                        slide.paste(im, (headshot_area_x, headshot_area_y), im.split()[3])
+                    else:
+                        slide.paste(im, (headshot_area_x, headshot_area_y))
                     draw = ImageDraw.Draw(slide)
                 elif len(imgs) == 2:
                     gap = 30
                     each_w = (headshot_area_width - gap) // 2
                     each_h = headshot_area_height
                     left, right = imgs
+                    # Ensure both images have alpha channel for transparency
+                    if left.mode != 'RGBA':
+                        left = left.convert('RGBA')
+                    if right.mode != 'RGBA':
+                        right = right.convert('RGBA')
                     left = self._resize_cover(left, each_w, each_h)
                     right = self._resize_cover(right, each_w, each_h)
 
@@ -1680,8 +1692,15 @@ class HTMLSlideGenerator:
                     right_x = headshot_area_x + each_w + gap
                     y = headshot_area_y
 
-                    slide.paste(left, (left_x, y), left.split()[3])
-                    slide.paste(right, (right_x, y), right.split()[3])
+                    # Paste with alpha mask to preserve transparency
+                    if left.mode == 'RGBA':
+                        slide.paste(left, (left_x, y), left.split()[3])
+                    else:
+                        slide.paste(left, (left_x, y))
+                    if right.mode == 'RGBA':
+                        slide.paste(right, (right_x, y), right.split()[3])
+                    else:
+                        slide.paste(right, (right_x, y))
                 draw = ImageDraw.Draw(slide)
         except Exception as e:
             print(f"Warning: Could not load headshot: {e}")
@@ -2053,11 +2072,11 @@ class HTMLSlideGenerator:
             # Position from PIL: headshot_area_width = 550 * 2.2 = 1210, headshot_area_height = 500 * 2.2 = 1100
             # headshot_area_x = map_area_x + (map_width - headshot_area_width) // 2 - 50
             # headshot_area_y = map_area_y + map_height - 50
-            # Headshot target box (tuned to match reference slide)
-            headshot_area_width_px = 600
-            headshot_area_height_px = 600
-            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 - 100  # Moved left (was +20)
-            headshot_area_y_px = map_area_y + int(map_height * 0.85)  # Lowered more (was 0.75)
+            # Headshot target box (smaller to not cover map)
+            headshot_area_width_px = 400
+            headshot_area_height_px = 400
+            headshot_area_x_px = map_area_x + (map_width - headshot_area_width_px) // 2 - 50  # Centered under map, slightly left
+            headshot_area_y_px = map_area_y + map_height + 30  # Position below map with gap
             
             slide_pptx.shapes.add_picture(
                 headshot_bytes,
