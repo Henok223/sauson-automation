@@ -307,6 +307,7 @@ class HTMLSlideGenerator:
         """
         Flood-fill background removal for GRAYSCALE headshots.
         Uses luminance-only distance with border sampling and auto-tuned tolerance.
+        PROTECTS CENTER REGION to avoid removing the subject.
         """
         try:
             import numpy as np
@@ -333,6 +334,15 @@ class HTMLSlideGenerator:
         bg = np.median(border)
         dist = np.abs(lum - bg)
 
+        # PROTECT CENTER REGION - don't remove pixels in the center 60% of image
+        # This prevents removing the person's face/body
+        center_y_start = int(H * 0.2)
+        center_y_end = int(H * 0.8)
+        center_x_start = int(W * 0.2)
+        center_x_end = int(W * 0.8)
+        center_protection = np.zeros((H, W), dtype=bool)
+        center_protection[center_y_start:center_y_end, center_x_start:center_x_end] = True
+
         from collections import deque
 
         def flood(t):
@@ -341,10 +351,14 @@ class HTMLSlideGenerator:
             q = deque()
 
             def push(y, x):
+                # CRITICAL: Don't flood into center region (protects subject)
+                if center_protection[y, x]:
+                    return
                 if 0 <= y < H and 0 <= x < W and close[y, x] and not bg_mask[y, x]:
                     bg_mask[y, x] = True
                     q.append((y, x))
 
+            # Only start flood from borders (not center)
             for x in range(W):
                 push(0, x); push(H - 1, x)
             for y in range(H):
@@ -360,8 +374,8 @@ class HTMLSlideGenerator:
 
             return bg_mask
 
-        # Conservative tolerance range - preserve subject, only remove clear background
-        tol_candidates = [10, 15, 20, 25, 30, 35]
+        # Very conservative tolerance - only remove obvious background
+        tol_candidates = [5, 8, 10, 12, 15, 18]
         best_mask = None
         best_score = None
         best_t = tol_candidates[0]
@@ -369,33 +383,49 @@ class HTMLSlideGenerator:
         for t in tol_candidates:
             mask = flood(t)
             removed = mask.mean()
-            # Target 20-25% removal (conservative to preserve subject)
-            # Prefer lower removal to avoid cutting into the person
-            target_removal = 0.22
+            # Target only 10-15% removal (very conservative - only edges)
+            target_removal = 0.12
             score = abs(removed - target_removal)
             if best_score is None or score < best_score:
                 best_score = score
                 best_mask = mask
                 best_t = t
-            # Stop if we get reasonable removal (15-30% is safe)
-            if 0.15 <= removed <= 0.30:
+            # Stop early if we get reasonable removal (8-20% is safe)
+            if 0.08 <= removed <= 0.20:
                 break
 
         removed_frac = best_mask.mean()
-        print(f"   Gray BG removal: tol={best_t}, removed={removed_frac:.1%}")
         
-        # Safety check: if we removed too much (>35%), use a more conservative mask
-        if removed_frac > 0.35:
-            print(f"   WARNING: Removed too much ({removed_frac:.1%}), trying more conservative tolerance...")
-            # Try with lower tolerance
-            for t in [5, 8, 10, 12]:
+        # Safety check: ensure we didn't remove too much from center
+        center_removed = (best_mask & center_protection).sum() / center_protection.sum()
+        if center_removed > 0.05:  # If >5% of center was removed, that's bad
+            print(f"   WARNING: Removed {center_removed:.1%} from center region - too aggressive!")
+            # Use even more conservative mask
+            for t in [3, 5, 8]:
                 mask = flood(t)
                 removed = mask.mean()
-                if 0.10 <= removed <= 0.30:
+                center_rem = (mask & center_protection).sum() / center_protection.sum()
+                if center_rem < 0.05 and 0.05 <= removed <= 0.20:
                     best_mask = mask
                     best_t = t
                     removed_frac = removed
-                    print(f"   Using more conservative tolerance: tol={best_t}, removed={removed_frac:.1%}")
+                    print(f"   Using ultra-conservative tolerance: tol={best_t}, removed={removed_frac:.1%}, center={center_rem:.1%}")
+                    break
+        
+        print(f"   Gray BG removal: tol={best_t}, removed={removed_frac:.1%}")
+        
+        # Final safety: if we removed too much overall (>25%), be even more conservative
+        if removed_frac > 0.25:
+            print(f"   WARNING: Removed too much overall ({removed_frac:.1%}), using minimal removal...")
+            # Try with very low tolerance
+            for t in [3, 5, 8]:
+                mask = flood(t)
+                removed = mask.mean()
+                if 0.05 <= removed <= 0.20:
+                    best_mask = mask
+                    best_t = t
+                    removed_frac = removed
+                    print(f"   Using minimal tolerance: tol={best_t}, removed={removed_frac:.1%}")
                     break
 
         new_alpha = alpha.copy()
@@ -746,8 +776,8 @@ class HTMLSlideGenerator:
             if o > 0.10 and t > 0.10:
                 return rembg_img
 
-        # 4) Last resort: aggressive flood-fill for studio backgrounds
-        ff = self._remove_background_gray(img, tol=30, feather=1)
+        # 4) Last resort: conservative flood-fill for studio backgrounds (protects center/subject)
+        ff = self._remove_background_gray(img, tol=8, feather=1)
         o, t, ma = self._alpha_stats(ff)
         print(f"   floodfill alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
         return ff
@@ -2011,7 +2041,7 @@ class HTMLSlideGenerator:
             headshot_img.load()  # Load fully before save to avoid memory issues
             # Ensure transparent background for PPTX as well (grayscale-aware)
             try:
-                headshot_img = self._remove_background_gray(headshot_img, tol=12, feather=1)
+                headshot_img = self._remove_background_gray(headshot_img, tol=8, feather=1)
             except Exception as e:
                 print(f"   Warning: PPTX fallback background removal failed: {e}")
             # ALWAYS convert to grayscale while preserving alpha (headshot should be grayscale)
