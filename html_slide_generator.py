@@ -380,8 +380,8 @@ class HTMLSlideGenerator:
 
             return bg_mask
 
-        # Very conservative tolerance - only remove obvious background
-        tol_candidates = [5, 8, 10, 12, 15, 18]
+        # More aggressive tolerance to match rembg performance (40-50% removal for headshots)
+        tol_candidates = [8, 12, 15, 18, 20, 25, 30]
         best_mask = None
         best_score = None
         best_t = tol_candidates[0]
@@ -389,15 +389,15 @@ class HTMLSlideGenerator:
         for t in tol_candidates:
             mask = flood(t)
             removed = mask.mean()
-            # Target only 10-15% removal (very conservative - only edges)
-            target_removal = 0.12
+            # Target 40-45% removal (normal for headshots - person is 50-60% of image)
+            target_removal = 0.42
             score = abs(removed - target_removal)
             if best_score is None or score < best_score:
                 best_score = score
                 best_mask = mask
                 best_t = t
-            # Stop early if we get reasonable removal (8-20% is safe)
-            if 0.08 <= removed <= 0.20:
+            # Stop early if we get good removal (35-50% is ideal for headshots)
+            if 0.35 <= removed <= 0.50:
                 break
 
         removed_frac = best_mask.mean()
