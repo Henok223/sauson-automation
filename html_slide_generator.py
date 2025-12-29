@@ -1766,6 +1766,21 @@ class HTMLSlideGenerator:
                         img = self._to_grayscale_preserve_alpha(img)
                         img = self._refine_edges(img, erode_size=1, blur_radius=0.5)
                         
+                        # 6) Harden alpha channel - ensure background is fully transparent (0) and foreground is fully opaque (255)
+                        # This prevents semi-transparent halos when compositing
+                        try:
+                            import numpy as np
+                            arr = np.array(img)
+                            alpha = arr[..., 3].astype(np.uint8)
+                            # Threshold: pixels with alpha < 128 become fully transparent (0), >= 128 become fully opaque (255)
+                            # This creates a clean cutout without semi-transparent edges
+                            alpha_hard = np.where(alpha < 128, 0, 255).astype(np.uint8)
+                            arr[..., 3] = alpha_hard
+                            img = Image.fromarray(arr, "RGBA")
+                            print(f"    Hardened alpha channel (threshold=128) to ensure clean transparency")
+                        except Exception as e:
+                            print(f"    Warning: Could not harden alpha: {e}")
+                        
                         # Final check before returning
                         final_o, final_t, final_ma = self._alpha_stats(img)
                         print(f"    Final headshot stats: opaque={final_o:.2f}, transp={final_t:.2f}, meanA={final_ma:.0f}")
