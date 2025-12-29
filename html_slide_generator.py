@@ -260,7 +260,10 @@ class HTMLSlideGenerator:
             q = deque()
 
             def push(y, x):
-                if 0 <= y < H and 0 <= x < W and close[y, x] and not bg_mask[y, x]:
+                # Check bounds FIRST before accessing arrays
+                if not (0 <= y < H and 0 <= x < W):
+                    return
+                if close[y, x] and not bg_mask[y, x]:
                     bg_mask[y, x] = True
                     q.append((y, x))
 
@@ -351,10 +354,13 @@ class HTMLSlideGenerator:
             q = deque()
 
             def push(y, x):
+                # Check bounds FIRST before accessing arrays
+                if not (0 <= y < H and 0 <= x < W):
+                    return
                 # CRITICAL: Don't flood into center region (protects subject)
                 if center_protection[y, x]:
                     return
-                if 0 <= y < H and 0 <= x < W and close[y, x] and not bg_mask[y, x]:
+                if close[y, x] and not bg_mask[y, x]:
                     bg_mask[y, x] = True
                     q.append((y, x))
 
