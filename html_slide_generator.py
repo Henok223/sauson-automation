@@ -420,14 +420,15 @@ class HTMLSlideGenerator:
         
         print(f"   Gray BG removal: tol={best_t}, removed={removed_frac:.1%}")
         
-        # Final safety: if we removed too much overall (>25%), be even more conservative
-        if removed_frac > 0.25:
+        # Final safety: if we removed too much overall (>60%), be more conservative
+        # Note: 40-50% removal is normal for headshots (person is 50-60% of image)
+        if removed_frac > 0.60:
             print(f"   WARNING: Removed too much overall ({removed_frac:.1%}), using minimal removal...")
             # Try with very low tolerance
             for t in [3, 5, 8]:
                 mask = flood(t)
                 removed = mask.mean()
-                if 0.05 <= removed <= 0.20:
+                if 0.05 <= removed <= 0.50:  # Allow up to 50% removal (normal for headshots)
                     best_mask = mask
                     best_t = t
                     removed_frac = removed
