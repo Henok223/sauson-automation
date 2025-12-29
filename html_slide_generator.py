@@ -311,7 +311,7 @@ class HTMLSlideGenerator:
         """
         try:
             import numpy as np
-            except ImportError:
+        except ImportError:
             print("   Warning: numpy not available for gray background removal")
             return img.convert("RGBA")
 
@@ -487,7 +487,7 @@ class HTMLSlideGenerator:
             a_img = Image.fromarray(a, 'L')
             r, g, b, _ = img.split()
             return Image.merge("RGBA", (r, g, b, a_img))
-            except Exception:
+        except Exception:
             return img
 
     def _strengthen_alpha(self, img: Image.Image, thresh: int = 25, boost: float = 2.0) -> Image.Image:
@@ -564,8 +564,8 @@ class HTMLSlideGenerator:
         Gently darkens only semi-transparent edge pixels to reduce white halo.
         Does NOT darken fully opaque pixels (avoids making the whole face dark).
         """
-            try:
-                import numpy as np
+        try:
+            import numpy as np
         except ImportError:
             return img
 
@@ -691,7 +691,7 @@ class HTMLSlideGenerator:
             r, g, b, a = img.split()
             gray = img.convert("L")
             return Image.merge("RGBA", (gray, gray, gray, a))
-            except Exception as e:
+        except Exception as e:
             print(f"Warning: fallback original headshot failed: {e}")
             return None
 
@@ -757,7 +757,7 @@ class HTMLSlideGenerator:
                     print(f"   API alpha stats: opaque={o:.2f}, transp={t:.2f}, meanA={ma:.0f}")
                     if o > 0.10 and t > 0.10:
                         return api_img
-        except Exception as e:
+            except Exception as e:
                 print(f"   API removal failed: {e}")
 
         # 2) OpenAI images.edit (optional, if key + SDK available) — now a backup
@@ -1698,7 +1698,7 @@ class HTMLSlideGenerator:
                                 
                                 return Image.merge("RGBA", (result_gray, result_gray, result_gray, alpha_channel))
                                 
-                except Exception as e:
+                            except Exception as e:
                                 print(f"    ⚠️  Advanced removal failed: {e}, using circular crop with transparent background")
                                 # Fallback: circular crop with transparent background
                                 mask = Image.new('L', (d, d), 0)
@@ -1952,7 +1952,7 @@ class HTMLSlideGenerator:
                 with open(tmp_file.name, 'rb') as f:
                     img_bytes = f.read()
                 pdf_bytes = img2pdf.convert(img_bytes)
-        return pdf_bytes
+                return pdf_bytes
             except Exception as e:
                 print(f"Error: {e}")
                 return None
