@@ -2,6 +2,10 @@
 Webhook listener for form submissions.
 Can be used with Zapier, Make.com, or as a standalone Flask server.
 """
+import os
+# Disable numba JIT compilation to avoid timeout issues on Render
+os.environ.setdefault('NUMBA_DISABLE_JIT', '1')
+
 from flask import Flask, request, jsonify
 from main import PortfolioOnboardingAutomation
 from image_processor import ImageProcessor
